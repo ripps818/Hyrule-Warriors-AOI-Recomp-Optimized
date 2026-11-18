@@ -4,6 +4,7 @@
 // synchronization SVCs (kernel.c), IPC (ipc.c), memory (memory.c), Break, OutputDebugString, GetInfo and ExitProcess. The 21 SVCs
 // TotK has but never reaches on MNG's boot path stop with a named fatal, the caller and the guest backtrace.
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "fs.h"
@@ -116,6 +117,15 @@ static void get_info(Cpu *c, uint64_t pc) {
     case 8: v = 0; break;                       // debugger attached
     case 10: v = 0; break;                      // idle tick count
     case 11:                                    // random entropy
+        const char *seed = getenv("HWAOI_RNG_SEED");   // repeatable test runs: a fixed sequence instead of OS entropy
+        if (seed && *seed) {
+            static uint64_t state, init;
+            if (!init) { state = strtoull(seed, NULL, 0); init = 1; }
+            uint64_t z = (state += 0x9e3779b97f4a7c15ull);   // splitmix64
+            z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+            z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+            v = z ^ (z >> 31);
+        } else
         if (!plat_random(&v, sizeof v)) rt_fatal("GetInfo 11: no random bytes from the system");
         break;
     case 18: v = PROGRAM_ID; break;
@@ -148,6 +158,7 @@ void rt_svc(Cpu *c, uint32_t imm, uint64_t pc) {
     int *d = kern_host_depth(t);
     __atomic_store_n(d, *d + 1, __ATOMIC_RELAXED);
     svc_body(c, imm, pc);
+    if (rt_trace & RT_TRACE_SVC) rt_log("svc %#x -> x0=%#llx x1=%#llx", imm, (unsigned long long)c->x[0], (unsigned long long)c->x[1]);
     int n = *d - 1;
     __atomic_store_n(d, n, __ATOMIC_RELAXED);
     if (!n && kern_preempt_pending(t)) kern_host_left(t);

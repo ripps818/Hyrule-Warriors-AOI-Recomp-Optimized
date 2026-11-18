@@ -27,6 +27,12 @@
 // The call count goes to the shared counter 1024 at a time: the main thread and the job workers all record command
 // buffers, and one locked add per call kept the counter's cache line moving between their cores (0.8k samples a
 // fight). The count lags by at most 1023 calls per thread.
+void nvn_returned(const char *name, const Cpu *c) {
+    size_t n = strlen(name);
+    int checked = (n > 10 && !strcmp(name + n - 10, "Initialize")) || !strcmp(name, "nvnProgramSetShaders");
+    if (checked && c->x[0] == 0) rt_log("nvn: %s returned false", name);
+}
+
 void nvn_called(uint8_t *seen, const char *name) {
     static _Thread_local uint32_t calls;
     if (++calls == 1024) {

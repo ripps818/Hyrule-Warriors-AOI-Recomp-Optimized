@@ -58,7 +58,15 @@ static OpusParameters opus_parameters(const IpcRequest *rq, int extended) {
 static uint32_t opus_work_size(const OpusParameters *p, int *state_size) {
     int n = opus_multistream_decoder_get_size(p->streams, p->coupled);
     opus_need(n > 0, "libopus rejected decoder state size");
-    uint64_t size = sizeof(HardwareOpus) + 2ull * (unsigned)n +
+    // The guest only reserves this much; the host keeps the decoder state in its own allocations (d->decoder). The size
+    // reported to the game follows a libopus built without deep PLC/OSCE (27240 bytes per coupled stream, 18472 per
+    // mono stream, 272 of header: what libopus 1.3 to 1.6 report as built for the Windows release). Linux distributions
+    // build libopus with those models, so opus_multistream_decoder_get_size is 6 to 8 times larger there (163872 for
+    // one coupled stream), and the game's audio engine, which sizes its fixed 30 MiB pool for the console's figures,
+    // then runs out of memory and shuts its audio down (Hash 0x37e2dcff "can't create resource").
+    uint64_t reserved = 272ull + (uint64_t)p->coupled * 27240ull + (uint64_t)(p->streams - p->coupled) * 18472ull;
+    if (reserved > (unsigned)n) reserved = (unsigned)n;   // a smaller libopus keeps its own figure
+    uint64_t size = sizeof(HardwareOpus) + 2ull * reserved +
                     (uint64_t)(p->rate * 120 / 1000) * (unsigned)p->channels * sizeof(int16_t);
     opus_need(size <= INT_MAX - 4095u, "decoder reservation overflow");
     *state_size = n;

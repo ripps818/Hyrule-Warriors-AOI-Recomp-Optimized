@@ -15,9 +15,11 @@
         static uint8_t seen;                                                                                         \
         nvn_called(&seen, #n);                                                                                       \
         nvn_impl_##n(c);                                                                                             \
+        nvn_returned(#n, c);                                                                                         \
     }                                                                                                                \
     static void nvn_impl_##n(Cpu *c)
 void nvn_called(uint8_t *seen, const char *name);          // the counting prologue of NVN_API
+void nvn_returned(const char *name, const Cpu *c);       // the epilogue of NVN_API: logs a false return of an Initialize call
 // Unknown/no-op command paths must not silently escape the mode-2 copy subset.
 static inline void nvn_copy_mode_unsupported(const Cpu *c, const char *name) {
     const cmd_t *cmd = arg_p(c, 0);

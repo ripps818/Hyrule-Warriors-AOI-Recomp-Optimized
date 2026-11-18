@@ -231,6 +231,13 @@ void audout_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs
         if (!((mode && !strcmp(mode, "none")) || cfg_get("TOTK_AUDIO_OFF"))) {
             out_need(SDL_InitSubSystem(SDL_INIT_AUDIO), "SDL audio initialization failed (use HWAOI_AUDIO=none for explicit silent mode)");
             SDL_AudioSpec spec = {SDL_AUDIO_S16, (int)channels, (int)rate};
+#ifndef _WIN32
+            // The game keeps about 20 ms queued, less than the default PipeWire/Pulse period (1024 frames, 21 ms): the
+            // device then drains the whole queue per callback and plays silence while the game refills it (the queue
+            // was empty on 5% of ticks: constant crackle). A 256-frame period keeps it filled. SDL_AUDIO_DEVICE_SAMPLE_FRAMES
+            // in the environment still overrides this.
+            SDL_SetHintWithPriority(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "256", SDL_HINT_DEFAULT);
+#endif
             o->stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
             out_need(o->stream != NULL, "SDL output device failed (use HWAOI_AUDIO=none for explicit silent mode)");
         }

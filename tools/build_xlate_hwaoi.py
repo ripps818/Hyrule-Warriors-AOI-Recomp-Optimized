@@ -22,7 +22,10 @@ import build_xlate as upstream
 from xlate_smoke import fragment_code, mov32i, SCHED, EXIT
 
 ROOT = Path(__file__).resolve().parents[1]
-MODE = "managed-self-contained-win-x64"
+WIN = os.name == "nt"
+RID = "win-x64" if WIN else "linux-x64"
+EXE = "totk_xlate.exe" if WIN else "totk_xlate"
+MODE = f"managed-self-contained-{RID}"
 VERSION = 2
 
 
@@ -187,11 +190,12 @@ def smoke_ir_banks(executable, folder, env, spirv_val):
 
 
 def build(args):
-    require(os.name == "nt", "this build entry currently targets Windows x64")
+    require(WIN or sys.platform.startswith("linux"), "this build entry targets Windows x64 or Linux x64")
     dotnet = args.dotnet.resolve(strict=True)
     output = target_path(args.out, ROOT / "work/build/hwaoi196608")
     require(output.name.startswith("xlate"), "translator deployment folder must start with xlate")
-    cache = dotnet.parent.parent / "NuGet"   # beside the .NET folder (HWAOI_TOOLS, default F:/)
+    # Windows: beside the .NET folder (HWAOI_TOOLS, default F:/). Linux: the system .NET folder is read-only.
+    cache = dotnet.parent.parent / "NuGet" if WIN else ROOT / "work/toolchain/nuget"
     for folder in (cache / "packages", cache / "http", cache / "plugins", cache / "cli-home", cache / "empty-feed"):
         folder.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -247,16 +251,18 @@ def build(args):
     publish = workspace / "publish"
     properties = ["-p:PublishAot=false", "-p:SelfContained=true", "-p:UseAppHost=true",
                   "-p:InvariantGlobalization=true", "-p:GeneratePackageOnBuild=false",
-                  "-p:NuGetAudit=false", f"-p:RyuSrc={source}", f"-p:RestoreFallbackFolders={(dotnet.parent / 'nuget').as_posix()}"]
+                  "-p:NuGetAudit=false", f"-p:RyuSrc={source}"]
+    if WIN:
+        properties.append(f"-p:RestoreFallbackFolders={(dotnet.parent / 'nuget').as_posix()}")
     # Offline first: use already cached, version-matched NuGet packages. --online
     # explicitly permits nuget.org if a dependency/runtime pack is absent.
     restore_sources = "https://api.nuget.org/v3/index.json" if args.online else str(cache / "empty-feed")
     started = time.monotonic()
-    run_logged([dotnet, "restore", project / "totk_xlate.csproj", "-r", "win-x64", *properties,
+    run_logged([dotnet, "restore", project / "totk_xlate.csproj", "-r", RID, *properties,
                 f"-p:RestoreSources={restore_sources}"], workspace, env, workspace / "restore.log")
-    run_logged([dotnet, "publish", project / "totk_xlate.csproj", "-c", "Release", "-r", "win-x64",
+    run_logged([dotnet, "publish", project / "totk_xlate.csproj", "-c", "Release", "-r", RID,
                 "--no-restore", *properties, "-o", publish], workspace, env, workspace / "publish.log")
-    executable = publish / "totk_xlate.exe"
+    executable = publish / EXE
     require(executable.is_file() and (publish / "totk_xlate.runtimeconfig.json").is_file(), "managed apphost missing")
     proof = smoke(executable, workspace / "smoke", env, args.spirv_val)
     executable.with_suffix(".id").write_text(identity + "\n", encoding="ascii")
@@ -264,10 +270,10 @@ def build(args):
     shutil.copytree(publish, output)
     manifest = {"status": "pass", "identity": identity, "inputs": inputs, "mode": MODE,
                 "dotnet": str(dotnet), "sdk_version": sdk, "workspace": str(workspace),
-                "deployment": str(output), "executable": str(output / "totk_xlate.exe"),
+                "deployment": str(output), "executable": str(output / EXE),
                 "deployment_files": hashes(output), "smoke": proof,
                 "seconds": round(time.monotonic() - started, 3),
-                "runtime_configuration": {"HWAOI_XLATE": str(output / "totk_xlate.exe")},
+                "runtime_configuration": {"HWAOI_XLATE": str(output / EXE)},
                 "limits": ["Managed self-contained build, not NativeAOT", "No game shader or GPU test performed",
                            "The complete deployment folder is required"]}
     write_json(workspace / "build-report.json", manifest)
@@ -278,7 +284,8 @@ def build(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--dotnet", type=Path, default=Path(os.environ.get("HWAOI_TOOLS", "F:") + "/DotNet/dotnet.exe"))
+    parser.add_argument("--dotnet", type=Path,
+                        default=Path(os.environ.get("HWAOI_TOOLS", "F:") + "/DotNet/dotnet.exe") if WIN else Path(shutil.which("dotnet") or "dotnet"))
     parser.add_argument("--out", type=Path, default=ROOT / "work/build/hwaoi196608/xlate-managed")
     parser.add_argument("--online", action="store_true", help="allow missing package restore from nuget.org")
     parser.add_argument("--defined-float-minmax", action="store_true")

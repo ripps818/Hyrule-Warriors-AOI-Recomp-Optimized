@@ -21,8 +21,21 @@ DEFAULT_EXEFS = ROOT / "work/game/exefs"
 DEFAULT_GENERATED = ROOT / "work/generated/hwaoi196608"
 MODULES = ("main", "subsdk0", "sdk")
 BUILD_NAME = "hwaoi196608"
-GAME_EXE = "Hyrule Warriors AOI Recomp Optimized.exe"   # tools/build_game.py EXE
-LEGACY_EXE = "hwaoi.exe"   # builds made before the rename
+WIN = os.name == "nt"
+GAME_EXE = "Hyrule Warriors AOI Recomp Optimized.exe" if WIN else "hyrule-warriors-aoi-recomp-optimized"   # tools/build_game.py EXE
+LEGACY_EXE = "hwaoi.exe"   # builds made before the rename (Windows only)
+XLATE_EXE = "totk_xlate.exe" if WIN else "totk_xlate"
+
+
+def default_zlib():
+    """Windows: the MSYS2 zlib1.dll. Linux: the system libz.so.1 (an absolute path: the runtime requires one)."""
+    if WIN:
+        return Path("F:/GCC/ucrt64/bin/zlib1.dll")
+    for directory in ("/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/lib64", "/lib/x86_64-linux-gnu"):
+        candidate = Path(directory) / "libz.so.1"
+        if candidate.is_file():
+            return candidate
+    return Path("/usr/lib/libz.so.1")
 
 
 def need(condition, message):
@@ -262,16 +275,18 @@ def scene_sharpness(value):
 
 def launch_interactive(args, identity):
     """Explicit user trial; retains logs and uses the user's local save profile."""
-    need(os.name == "nt", "interactive launcher currently requires Windows")
+    need(WIN or sys.platform.startswith("linux"), "interactive launcher requires Windows or Linux")
     exe = local_output(args.exe, "build")
     need(exe.is_file(), f"runtime not built: {exe}")
-    translator = exe.parent / "xlate-managed-irbanks/totk_xlate.exe"
+    translator = exe.parent / "xlate-managed-irbanks" / XLATE_EXE
     need(translator.is_file() and translator.with_suffix(".id").is_file(), "IR-bank shader translator is missing")
     zlib = args.zlib.resolve(strict=True)
-    need(zlib.is_file(), "native zlib DLL is missing")
+    need(zlib.is_file(), "native zlib library is missing")
     report_dir = local_output(ROOT / "work/reports" / datetime.now().strftime("interactive-%Y%m%d-%H%M%S-%f"), "reports")
     report_dir.mkdir(parents=True)
     env = dict(os.environ)
+    nup_override = env.get("HWAOI_NUP_PATH")
+    need(not nup_override or Path(nup_override).is_file(), f"HWAOI_NUP_PATH points to a missing file: {nup_override}")
     # Environment overrides take precedence over inherited ini/probe settings. Fullscreen and the window size are not
     # forced: they are the player's settings (the Screen tab and F11 change them live, hwaoi.ini keeps them), and an
     # environment value would lock those rows.
@@ -279,10 +294,10 @@ def launch_interactive(args, identity):
                "HWAOI_INPUT": args.input_mode, "HWAOI_RUMBLE": "0", "HWAOI_PROGRESS": "1",
                "HWAOI_EXEFS": str(args.exefs.resolve()),
                "HWAOI_PROFILE_DIR": str(local_output(args.profile_dir, "saves")),
-               "HWAOI_GSV_LOCAL_FRAME_POLICY": "1", "HWAOI_NATIVE_INFLATE": "1",
-               "HWAOI_ZLIB_DLL": str(zlib), "HWAOI_POOL_BACKPRESSURE": "1", "HWAOI_POOL_DIAG": "0",
-               "HWAOI_IR_BANKS": "1", "HWAOI_XLATE": str(translator), "HWAOI_TRACE": "sched,perf",
-               "HWAOI_SHOTS": "60-1800:60", "HWAOI_SHOTS_DIR": str(report_dir / "presents"),
+               "HWAOI_GSV_LOCAL_FRAME_POLICY": "1", "HWAOI_NATIVE_INFLATE": os.environ.get("HWAOI_NATIVE_INFLATE", "1"),
+               "HWAOI_ZLIB_DLL": str(zlib), "HWAOI_POOL_BACKPRESSURE": os.environ.get("HWAOI_POOL_BACKPRESSURE", "1"), "HWAOI_POOL_DIAG": os.environ.get("HWAOI_POOL_DIAG", "0"),
+               "HWAOI_IR_BANKS": "1", "HWAOI_XLATE": str(translator), "HWAOI_TRACE": os.environ.get("HWAOI_TRACE", "sched,perf"),
+               "HWAOI_SHOTS": os.environ.get("HWAOI_SHOTS", "60-1800:60"), "HWAOI_SHOTS_DIR": str(report_dir / "presents"),
                "HWAOI_SHOTS_FULL": "1", "HWAOI_CORE_STALL_DIAG": "0",
                "DKB_SHADER_FAILURE_DUMP": str(report_dir / "shader-failures")}
     options.update(pipeline_options(diagnostic=args.input_feed is not None or args.input_script is not None,
@@ -341,6 +356,16 @@ def launch_interactive(args, identity):
         script = local_output(args.input_script, "reports").resolve(strict=True)
         need(script.is_file(), "diagnostic input script must be a local file under work/reports")
         options["HWAOI_INPUT_SCRIPT"] = env["HWAOI_INPUT_SCRIPT"] = str(script)
+    # Repeatable-test input: a recording under work/replays, kept apart from the diagnostic feeds and scripts above so
+    # the normal asynchronous pipeline policy stays in force (the timing being measured is the normal one).
+    if getattr(args, "replay_script", None) is not None:
+        script = local_output(args.replay_script, "replays").resolve(strict=True)
+        need(script.is_file(), "replay script must be a local file under work/replays")
+        options["HWAOI_INPUT_SCRIPT"] = env["HWAOI_INPUT_SCRIPT"] = str(script)
+    if getattr(args, "record_input", None) is not None:
+        target = local_output(args.record_input, "replays")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        options["HWAOI_INPUT_RECORD"] = env["HWAOI_INPUT_RECORD"] = str(target)
     if args.no_captures:
         for key in ("HWAOI_SHOTS", "HWAOI_SHOTS_DIR", "HWAOI_SHOTS_FULL", "HWAOI_SHOTS_LATEST"):
             options.pop(key, None)
@@ -357,7 +382,7 @@ def launch_interactive(args, identity):
             report["code_patch_profile"] = built.get("code_patch_profile")
     with (report_dir / "stdout.log").open("wb") as stdout, (report_dir / "stderr.log").open("wb") as stderr:
         proc = subprocess.Popen([str(exe), "--play-experimental"], cwd=exe.parent, env=env,
-                                stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW)
+                                stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW if WIN else 0)
     report["pid"] = proc.pid
     save_json(report_dir / "launch.json", report)
     return report
@@ -410,15 +435,16 @@ def build_parser():
     build.add_argument("--generated", type=Path, default=ROOT / "work/generated/hwaoi196608-full")
     build.add_argument("--out", type=Path, default=ROOT / "work/build/hwaoi196608")
     build.add_argument("--romfs", type=Path, required=True, help="Prepared romfs.bin/index.json directory; not the NUP")
-    build.add_argument("--deps", type=Path, required=True, help="Existing include/lib/bin runtime dependency tree")
-    build.add_argument("--toolchain", type=Path, default=Path(os.environ.get("HWAOI_TOOLS", "F:") + "/llvm-mingw"))
-    build.add_argument("--ninja", type=Path, default=Path("F:/Ninja/ninja.exe"))
+    build.add_argument("--deps", type=Path, required=WIN, help="Existing include/lib/bin runtime dependency tree (Windows; Linux uses the system libraries)")
+    build.add_argument("--toolchain", type=Path, default=Path(os.environ.get("HWAOI_TOOLS", "F:") + "/llvm-mingw") if WIN else None,
+                       help="llvm-mingw tree (Windows) or an LLVM directory with bin/clang (Linux; default: clang and lld on PATH)")
+    build.add_argument("--ninja", type=Path, default=Path("F:/Ninja/ninja.exe") if WIN else None)
     build.add_argument("--jobs", type=int, default=0, help="0 selects workers from available RAM/commit; 1..8 sets a ceiling")
     build.add_argument("--toolchain-stamp", type=Path, help="compiler/dependency identity for incremental builds")
     build.add_argument("--icon", type=Path, help="the game's .ico (tools/hwaoi_icon.py) to embed in the executable")
     launch = sub.add_parser("launch", help="Open the experimental game with live input and local logs")
     launch.add_argument("--exe", type=Path, default=ROOT / "work/build/hwaoi196608" / GAME_EXE)
-    launch.add_argument("--zlib", type=Path, default=Path("F:/GCC/ucrt64/bin/zlib1.dll"))
+    launch.add_argument("--zlib", type=Path, default=default_zlib())
     launch.add_argument("--input-feed", type=Path, help="opt-in expiring diagnostic controls under work/reports")
     launch.add_argument("--capture-every", type=int, help="diagnostic capture stride in frames (15..3600; requires --input-feed)")
     launch.add_argument("--input", dest="input_mode", choices=("auto", "keyboard", "none"), default="auto", help="physical input policy; diagnostic scripts/feed remain available")
@@ -427,6 +453,8 @@ def build_parser():
     launch.add_argument("--experimental-rate-control", action="store_true", help="opt-in unqualified 30/60/90/120 presentation-rate experiments")
     launch.add_argument("--resolution", choices=("1280x720", "1920x1080", "2560x1440", "3840x2160"), help="native game resolution; non-1080p modes remain experimental; requires display-settings generation")
     launch.add_argument("--fps", choices=("30", "60", "90", "120"), help="presentation target; 90/120 remain experimental")
+    launch.add_argument("--replay-script", type=Path, help="replay a recorded input session (a file under work/replays)")
+    launch.add_argument("--record-input", type=Path, help="record the input of this session to a file under work/replays")
     launch.add_argument("--input-script", type=Path, help="opt-in startup diagnostic script under work/reports")
     launch.add_argument("--profile-dir", type=Path, default=ROOT / "work/saves/hwaoi196608", help="local save profile under work/saves")
     launch.add_argument("--pipe-sync", action="store_true",
@@ -507,14 +535,17 @@ def dispatch(args):
                 need(storage.get("exefs_sha256") == identity["exefs_sha256"], "RomFS belongs to another ExeFS build")
                 need((args.romfs / ("cache.bin" if storage.get("storage") == "nup-cache-v1" else "romfs.bin")).is_file(),
                      "prepared HWAoI RomFS storage is missing")
-                need(args.deps.is_dir() and args.ninja.is_file(), "runtime dependency tree or Ninja missing")
+                if WIN:
+                    need(args.deps.is_dir() and args.ninja.is_file(), "runtime dependency tree or Ninja missing")
                 need(0 <= args.jobs <= 8, "build jobs must be 0 (automatic) or in 1..8")
                 out = local_output(args.out, "build")
                 command = [sys.executable, ROOT / "tools/build_game.py", "--version", BUILD_NAME,
                      "--gen", generated, "--out", out, "--expected", generated / "expected.json",
                      "--exefs", args.exefs.resolve(), "--romfs", args.romfs.resolve(),
-                     "--profile", ROOT / "work/saves/hwaoi196608", "--toolchain", args.toolchain,
-                     "--ninja", args.ninja, "--deps", args.deps, "--jobs", args.jobs, "--full-build"]
+                     "--profile", ROOT / "work/saves/hwaoi196608", "--jobs", args.jobs, "--full-build"]
+                for flag, value in (("--toolchain", args.toolchain), ("--ninja", args.ninja), ("--deps", args.deps)):
+                    if value is not None:
+                        command += [flag, value]
                 if args.toolchain_stamp:
                     need(args.toolchain_stamp.is_file(), "toolchain identity stamp is missing")
                     command += ["--toolchain-stamp", args.toolchain_stamp.resolve()]
