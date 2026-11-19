@@ -135,3 +135,29 @@ motion from cached instance matrices (object blocks hold per-instance 3x4 world 
 6. resolution.c / hwaoi_display.h: accept arbitrary 16:9 scene sizes below the output for DLSS/FSR ratios,
    with the pool plan re-measured.
 7. gfx_present.c present_image: turn SMAA off while temporal AA runs; keep HDR/FSR1 present scaling.
+
+## Implementation (runtime/vk_temporal.c, runtime/vk_ffx.c)
+
+`HWAOI_TEMPORAL=fsr` (restart: device extensions) runs AMD FSR through the ffx-api of
+`amd_fidelityfx_upscaler_vk.so` next to the executable (fsr4-vk, GPL-3.0, never linked or copied: build it with
+`tools/build_fsr4_vk.sh --work work/fsr4-vk-build --dest work/build/hwaoi196608`). Without the library the log says
+`fsr: ... FSR off` and `temporal: ... rendering unchanged, no jitter`, and the frame is the game's own.
+
+- Classification as above (G-buffer with formats 43/91/122 + 130, lighting target armed after it, bloom start by
+  fs `ea72...` on a half-width R11G11B10F target without depth). Frames start at the next depth prepass or
+  G-buffer pass after FSR ran (the present is not a frame boundary in the replay).
+- Camera: the lighting draw has two variants, fs `ad60a723207be8b6` (c3 0x600) and `1f117d51945d8d8e` (c3 0x500,
+  frames with fewer lights); both hold the camera at vec4 [11..15]. The block is accepted by content
+  (camera * VP = (0, 0, 64, 0)), not by hash.
+- Jitter: Halton(2,3) viewport offset on draws with more than 6 vertices that use the scene-size D32S8 depth, until
+  the scene ends; full-screen draws are never moved. Sign convention checked on a still-camera cutscene
+  (presents 1386-1505 of battle-slow): `HWAOI_FSR_JITTER_SIGN=-1` and `HWAOI_TEMPORAL_JITTER=0` both give
+  visibly worse silhouette edges than the default.
+- Motion: camera-only, `shaders/temporal_mv.comp`; the scene depth is copied to R32F for FSR (D32S8 is not an
+  FSR depth format). Characters and crowds moving on their own get no vectors and can trail.
+- While FSR runs the present SMAA is off and the game's RCAS gets strength 0 (`HWAOI_SCENE_SHARPNESS` set
+  explicitly still wins); FSR's own sharpening is `HWAOI_FSR_SHARPNESS` (0..100, default 50). Strength 0 was
+  verified to remove the game's sharpening (edge energy of a still frame 3.64 -> 1.75).
+- Debug keys: `HWAOI_TEMPORAL_DEBUG=1` (motion vectors in place of the picture), `HWAOI_TEMPORAL_MV=0`,
+  `HWAOI_TEMPORAL_JITTER=0`, `HWAOI_TEMPORAL_LOG=1` (still-camera stretches by present number),
+  `HWAOI_FSR_DEBUG=1` (ffx-api checks), `HWAOI_FSR_MODEL=fp8|int8`, `HWAOI_FSR_VERSION`.

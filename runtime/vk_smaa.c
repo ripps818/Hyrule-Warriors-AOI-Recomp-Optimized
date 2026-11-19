@@ -9,6 +9,7 @@
 
 #include "cfg.h"
 #include "host.h"
+#include "vk_temporal.h"
 #include "shaders/smaa/AreaTex.h"
 #include "shaders/smaa/SearchTex.h"
 #include "smaa_blend_spv.h"
@@ -204,6 +205,11 @@ static void run_pass(VkCommandBuffer cb, VkPipeline p, const VkDescriptorImageIn
 int vk_smaa_record(VkCommandBuffer cb, VkImage src, VkFormat src_fmt, const int crop[4], int hdr, VkImage *out,
                    VkFormat *out_fmt) {
     if (strcmp(cfg_value("TOTK_ANTIALIASING"), "smaa") || !src_fmt) return 0;
+    if (vk_temporal_running()) {   // FSR anti-aliases the scene (vk_temporal.c): no second pass over it
+        static int told;
+        if (!told) told = 1, rt_log("smaa: off while the temporal AA (HWAOI_TEMPORAL=fsr) runs");
+        return 0;
+    }
     VkCtx *c = vk_ctx();
     if (!S.tried) init(c);
     int cx = crop[0], cy = crop[1], cw = crop[2], ch = crop[3];

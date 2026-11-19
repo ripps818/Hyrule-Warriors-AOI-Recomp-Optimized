@@ -52,7 +52,8 @@ static const char *const known[] = {
     "SCENE_SHARPNESS", "SHADER_MEMO", "SHARED_FONTS", "SPIRV_TRIM", "CS_PREBUILD", "SHARPNESS", "SHOTS", "SHOTS_DIR", "SHOTS_FULL", "SHOTS_LATEST", "SPEED_PROBE", "SPIN", "SPIN_HANDOFF_US", "SPLIT_DRAWS", "SPLIT_US", "STICK_DEADZONE", "SWKBD_ANSWER",
     "SWKBD_TEST", "TEST_PAD", "TEST_PREPARE_SHADERS", "TEX_ALIAS", "TEX_MEMO", "TEX_VRAM_PRESSURE", "TIMER_1MS", "TRACE", "UBO_SNAPSHOT", "UPSCALER", "VK_DYN_A2C", "VK_DYN_VERTEX", "VK_NO_FLOAT64",
     "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VOLUME", "VRAM_HEADROOM", "SMALL_MEMORY_POOLS", "COPY_RECLAIM", "SOURCE_COMPRESS", "LAZY_HEAP", "LAZY_HEAP_KIB", "LAZY_HEAP_AUTO_FREE_MB", "VS_OUTS",
-    "WB_EXACT", "WB_FENCE_LIMIT", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_PREFETCH", "XLATE_PROCS", "ZSTD_CHECK", "ZSTD_NATIVE",
+    "TEMPORAL", "TEMPORAL_JITTER", "TEMPORAL_MV", "TEMPORAL_DEBUG", "TEMPORAL_LOG", "FSR_QUALITY", "FSR_SHARPNESS", "FSR_JITTER_SIGN",
+    "FSR_DEBUG", "FSR_MODEL", "FSR_VERSION", "WB_EXACT", "WB_FENCE_LIMIT", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_PREFETCH", "XLATE_PROCS", "ZSTD_CHECK", "ZSTD_NATIVE",
 };
 
 // The totk.ini section a key cfg_set may write goes to when the file lacks it (totk.ini.example's sections).
@@ -61,7 +62,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
     {"FULLSCREEN", "display"}, {"WINDOW_SIZE", "display"}, {"PERF_OVERLAY", "display"}, {"VK_PRESENT", "display"},
     {"GPU_INDEX", "display"}, {"OUTPUT_RES", "display"}, {"RENDER_SCALE", "display"}, {"UPSCALER", "display"},
-    {"SHARPNESS", "display"}, {"ANTIALIASING", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"COLOR_PRESET", "display"},
+    {"SHARPNESS", "display"}, {"ANTIALIASING", "display"}, {"TEMPORAL", "display"}, {"FSR_QUALITY", "display"}, {"FSR_SHARPNESS", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"COLOR_PRESET", "display"},
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
     {"HDR_UI_NITS", "display"},
@@ -111,6 +112,9 @@ static const CfgMeta metas[] = {
 #endif
     {"UPSCALER", "fsr", "fsr|bilinear", LIVE}, {"SHARPNESS", "80", "0..100", LIVE},
     {"ANTIALIASING", "off", "off|smaa", LIVE},
+    // temporal AA / upscaling (vk_temporal.c): device extensions and the scene size are set at start
+    {"TEMPORAL", "off", "off|fsr", RESTART}, {"FSR_QUALITY", "native", "native|quality|balanced|performance", RESTART},
+    {"FSR_SHARPNESS", "50", "0..100", LIVE},
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     // colour adjustment (vk_color.c); the preset is the menu's, the four values are what the present uses
     {"COLOR_PRESET", "default", "default|vivid|clarity|custom", LIVE}, {"COLOR_BRIGHTNESS", "0", "-30..30", LIVE},

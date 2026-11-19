@@ -35,6 +35,7 @@
 #include "tex.h"
 #include "vk.h"
 #include "vk_exec.h"
+#include "vk_temporal.h"
 #include "memx.h"
 #include "nvn_program_source.h"
 #include "platform/platform.h"
@@ -1538,6 +1539,10 @@ static int hwaoi_scene_sharpness_override(VkExec *ex, int stage, int slot,
                                          const VkDescriptorBufferInfo *source, VkDescriptorBufferInfo *out) {
     if (!RT_TARGET_HWAOI || stage != NVN_STAGE_CS || slot != 3 || !ex || !ex->prog) return 0;
     static int percent = -2;
+    if (percent == -2 && !cfg_get("TOTK_SCENE_SHARPNESS") && vk_temporal_running()) {
+        percent = 0;   // FSR sharpens instead (HWAOI_FSR_SHARPNESS); an explicit SCENE_SHARPNESS still wins
+        rt_log("scene sharpness: the game's RCAS strength 0 while the temporal AA runs");
+    }
     if (percent == -2 && !hwaoi_scene_sharpness_parse(cfg_get("TOTK_SCENE_SHARPNESS"), &percent))
         rt_fatal("scene sharpness: SCENE_SHARPNESS must be game or an integer from 0 to 100");
     if (percent < 0) return 0;   // game: preserve the original descriptor and every byte
@@ -1672,6 +1677,17 @@ static int upd_read(const VkExec *ex, uint64_t a, void *out, size_t n) {
         return 1;
     }
     return 0;
+}
+
+int vk_exec_ubo_read(const VkExec *ex, int stage, int slot, uint64_t off, void *out, size_t n) {
+    if (stage < 0 || stage >= 6 || slot < 0 || slot >= 18) return 0;
+    const p_bind_buf *u = &ex->ubo[stage][slot];
+    VkMemSpan sp;
+    if (!u->addr || u->size < off + n) return 0;
+    if (upd_read(ex, u->addr + off, out, n)) return 1;
+    if (!vk_mem_resolve(u->addr + off, n, &sp)) return 0;
+    memcpy(out, (const void *)(uintptr_t)(u->addr + off), n);
+    return 1;
 }
 
 // That address as the bound block holds it at this point of the replay; 0 when the block is unbound or too short. The
@@ -2801,11 +2817,14 @@ static void bind_pipeline(VkExec *ex, VkPipelineBindPoint bp, VkPipeline p) {
 }
 
 static int g_ui_comp, g_ui_comp_prev;   // the draw being recorded is the one ui_fill_draw recognises
+static int g_tjit, g_tjit_prev;         // the draw being recorded takes the temporal jitter (vk_temporal_draw)
 
 static void record_fixed(VkExec *ex) {
     VkCommandBuffer cb = ex->cb;
     if (g_ui_comp != g_ui_comp_prev) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
     g_ui_comp_prev = g_ui_comp;
+    if (g_tjit != g_tjit_prev) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT;
+    g_tjit_prev = g_tjit;
     if (ex->dirty & VK_EXEC_DIRTY_VIEWPORT) {
         float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
         if (ex->has_vp) x = ex->vp[0][0], y = ex->vp[0][1], w = ex->vp[0][2], h = ex->vp[0][3];
@@ -2815,6 +2834,7 @@ static void record_fixed(VkExec *ex) {
             float f = (float)ex->pass_w / 1920.0f, cx = (float)ex->pass_w * 0.5f, cy = (float)ex->pass_h * 0.5f;
             x = cx + (x - cx) * f, y = cy + (y - cy) * f, w *= f, h *= f;
         }
+        if (g_tjit) vk_temporal_viewport(&x, &y);
         VkViewport v = {x, y + h, w, -h, ex->depth_range[0], ex->depth_range[1]};   // the y flip: negative height
         vkCmdSetViewportWithCount(cb, 1, &v);
         ex->recorded++;
@@ -3260,6 +3280,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (light_quad_fault_skip(ex, vs, fs)) return 0;
     if (!vs || (has_fs && !fs) || (want_gs && (!has_gs || !gs))) return 0;
     if (!geometry_feedback_safe(ex, vs, gs)) return 0;
+    g_tjit = vk_temporal_draw(ex, fs, count);   // may run FSR here (the pass is ended and begun again)
     {   // the 2D layer drawn after that pass (logo, menu, text) is laid out as a centred 1920 canvas too; the next present
         // ends it
         static int after_fill;
@@ -3774,6 +3795,8 @@ static void op_dispatch(VkExec *ex, const p_dispatch *d) {
     const GfxShader *cs;
     VkPipeline p = compute_ready(ex, &cs, &info);
     if (!p) return;
+    const int32_t groups[3] = {d->x, d->y, d->z};
+    if (vk_temporal_dispatch(ex, cs, groups)) return;   // replaced by the temporal upscaler
     vk_exec_barrier(ex);   // ends the pass; earlier writes are visible to the shader
     bind_pipeline(ex, VK_PIPELINE_BIND_POINT_COMPUTE, p);
     c0_dim[0] = (uint32_t)d->x, c0_dim[1] = (uint32_t)d->y, c0_dim[2] = (uint32_t)d->z;
