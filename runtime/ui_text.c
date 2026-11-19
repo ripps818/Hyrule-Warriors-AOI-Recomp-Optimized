@@ -75,8 +75,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER_FSR4] = "FSR 4 (temporal)",
     [UI_MENU_UPSCALER_FSR4_DESC] = "Off: bilinear scaling to the window. FSR 1: spatial AMD FSR scaling of the finished "
                                    "picture. FSR 4: temporal anti-aliasing and upscaling of the 3D scene from motion "
-                                   "vectors (the window scaling stays FSR 1). Needs amd_fidelityfx_upscaler_vk.so next to "
-                                   "the game. Switching to or from FSR 4 applies after restart.",
+                                   "vectors (the window scaling stays FSR 1). Needs the FSR library next to the game "
+                                   "(Windows downloads it from AMD on first use). Switching to or from FSR 4 applies after restart.",
     [UI_MENU_NEEDS_FSR4] = "Only used with FSR 4 (temporal).",
     [UI_MENU_SCENE_SHARP] = "Game's own sharpening (FSR 4)",
     [UI_MENU_SCENE_SHARP_DESC] = "Whether the game's own sharpening stays on while FSR 4 runs. Automatic turns it off "
@@ -94,7 +94,11 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_AA] = "Anti-aliasing (SMAA)",
     [UI_MENU_AA_DESC] = "SMAA smooths jagged edges in the final picture at a small GPU cost.",
     [UI_MENU_OPT_OFF] = "Off", [UI_MENU_AA_SMAA] = "SMAA",
-    [UI_MENU_FFX_MISSING] = "Needs amd_fidelityfx_upscaler_vk.so next to the game.",
+    [UI_MENU_FFX_MISSING] = "Needs amd_fidelityfx_upscaler_vk.so next to the game (tools/build_fsr4_vk.sh).",
+    [UI_MENU_FFX_DOWNLOAD] = "Downloads AMD's FSR DLLs (about 36 MB) when selected; restart afterwards.",
+    [UI_MENU_FSR_VERSION] = "FSR version",
+    [UI_MENU_FSR_VERSION_DESC] = "Auto uses the newest FSR 4 the GPU supports. FSR 3.1 is AMD's non-ML upscaler, for GPUs without FSR 4 or to compare. Applies after restart.",
+    [UI_MENU_FSR_V_AUTO] = "Auto (FSR 4)", [UI_MENU_FSR_V_31] = "FSR 3.1",
     [UI_MENU_FSR_QUALITY] = "FSR 4 quality",
     [UI_MENU_FSR_QUALITY_DESC] = "The 3D scene is drawn smaller and upscaled to the output size by FSR. Native: same "
                                  "size (anti-aliasing only). Quality, Balanced and Performance draw less and run faster. "
@@ -402,7 +406,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER_FSR4] = "FSR 4 (временный)",
     [UI_MENU_UPSCALER_FSR4_DESC] = "Выкл.: билинейное масштабирование под окно. FSR 1: пространственное масштабирование "
                                    "готовой картинки. FSR 4: временное сглаживание и апскейл 3D-сцены по векторам "
-                                   "движения. Нужен amd_fidelityfx_upscaler_vk.so рядом с игрой. Переключение на FSR 4 и "
+                                   "движения. Нужна библиотека FSR рядом с игрой (Windows скачивает её у AMD при первом использовании). Переключение на FSR 4 и "
                                    "с него — после перезапуска.",
     [UI_MENU_NEEDS_FSR4] = "Только с FSR 4 (временный).",
     [UI_MENU_SCENE_SHARP] = "Резкость игры (FSR 4)",
@@ -421,7 +425,11 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_AA] = "Сглаживание (SMAA)",
     [UI_MENU_AA_DESC] = "SMAA сглаживает неровные края итоговой картинки при небольшой нагрузке на GPU.",
     [UI_MENU_OPT_OFF] = "Выкл.", [UI_MENU_AA_SMAA] = "SMAA",
-    [UI_MENU_FFX_MISSING] = "Нужен amd_fidelityfx_upscaler_vk.so рядом с игрой.",
+    [UI_MENU_FFX_MISSING] = "Нужен amd_fidelityfx_upscaler_vk.so рядом с игрой (tools/build_fsr4_vk.sh).",
+    [UI_MENU_FFX_DOWNLOAD] = "Скачивает DLL FSR от AMD (около 36 МБ) при выборе; затем перезапустите.",
+    [UI_MENU_FSR_VERSION] = "Версия FSR",
+    [UI_MENU_FSR_VERSION_DESC] = "Авто: новейший FSR 4, который поддерживает GPU. FSR 3.1 - не ML-апскейлер AMD, для GPU без FSR 4 или для сравнения. После перезапуска.",
+    [UI_MENU_FSR_V_AUTO] = "Авто (FSR 4)", [UI_MENU_FSR_V_31] = "FSR 3.1",
     [UI_MENU_FSR_QUALITY] = "Качество FSR 4",
     [UI_MENU_FSR_QUALITY_DESC] = "3D-сцена рисуется меньше и растягивается FSR до выходного размера. Нативное: тот же "
                                  "размер (только сглаживание). Остальные режимы быстрее. Рекомендуемый путь к 4K: "

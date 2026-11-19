@@ -176,3 +176,14 @@ Checked on battle-slow at 1920x1080: quality and performance run every frame, co
 path, silhouettes are clean where the game's EASU+RCAS shows stair-steps and halo noise, the HUD stays sharp.
 Known: the world UI (markers, damage numbers) is drawn into the scene picture before the upscale and gets
 only camera motion, so moving markers can smear; characters trail as in native mode; no texture LOD bias.
+
+## Windows
+
+Same code path as Linux; the library is AMD's, not fsr4-vk. `amd_fidelityfx_loader_vk.dll` exports the ffx-api and loads
+`amd_fidelityfx_upscaler_vk.dll` (FSR 4.1.2 on RDNA 2 and newer, FSR 3.1.6 otherwise) from the executable's folder. When
+FSR 4 is selected and they are missing, `runtime/vk_ffx_fetch_win.c` downloads both with Windows' `curl.exe` from the
+FidelityFX SDK repository (tag v2.4.0, `Kits/FidelityFX/signedbin/`), checks the pinned SHA-256 sums and only then renames
+them into place (menu: picking FSR 4 starts it in the background, restart afterwards; at start it blocks). Offline or for
+a release folder: `python tools/fetch_fsr_dlls.py <folder>`. The Settings "FSR version" row (`HWAOI_FSR_VERSION`, auto or
+3.1) pins FSR 3.1 instead of the newest FSR 4. Not built or run on Windows yet: the Windows branch (loader, DLL fetch,
+menu note) was only syntax-checked against stub headers.

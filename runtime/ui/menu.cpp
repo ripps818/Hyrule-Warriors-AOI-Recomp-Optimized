@@ -46,6 +46,8 @@ extern "C" {
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 int vk_ffx_lib_present(void);   // vk_ffx.h
+void vk_ffx_fetch_async(void);  // vk_ffx_fetch.h
+int vk_ffx_fetch_state(void);
 void vk_queue_lock(void);
 void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
@@ -636,11 +638,19 @@ static bool fsr4_on(void) { return !strcmp(cfg_value("TOTK_TEMPORAL"), "fsr"); }
 static void row_scaling(void) {
     static const UiTextId names[] = {UI_MENU_SCALE_OFF, UI_MENU_SCALE_FSR1, UI_MENU_UPSCALER_FSR4};
     static const bool at_start = fsr4_on();
+#ifdef _WIN32
+    // Windows: the DLLs are downloaded from AMD's SDK repository when FSR 4 is picked (or at start, if it already is)
+    bool lib = true;
+    const char *note = vk_ffx_lib_present() ? nullptr : menu_text(UI_MENU_FFX_DOWNLOAD);
+#else
     bool lib = vk_ffx_lib_present() != 0;
+    const char *note = lib ? nullptr : menu_text(UI_MENU_FFX_MISSING);
+#endif
     int cur = fsr4_on() ? 2 : !strcmp(cfg_value("TOTK_UPSCALER"), "fsr") ? 1 : 0;
     int pick = opt_select("TOTK_UPSCALER", UI_MENU_UPSCALER, names, 3, cur, UI_MENU_UPSCALER_FSR4_DESC, 1,
-                          lib ? -1 : 2, fsr4_on() != at_start, lib ? nullptr : menu_text(UI_MENU_FFX_MISSING));
+                          lib ? -1 : 2, fsr4_on() != at_start, note);
     if (pick < 0) return;
+    if (pick == 2 && !vk_ffx_lib_present()) vk_ffx_fetch_async();
     cfg_set("TOTK_UPSCALER", pick == 0 ? "bilinear" : "fsr");
     cfg_set("TOTK_TEMPORAL", pick == 2 ? "fsr" : "off");
     opt_save_soon();
@@ -655,6 +665,10 @@ static void rows_upscaling(void) {
                                  UI_MENU_FSR_Q_PERFORMANCE};
     if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
     opt_choice("TOTK_FSR_QUALITY", UI_MENU_FSR_QUALITY, q, 4, UI_MENU_FSR_QUALITY_DESC);
+    static const char *const fv[] = {"auto", "3.1"};
+    const char *fn[] = {menu_text(UI_MENU_FSR_V_AUTO), menu_text(UI_MENU_FSR_V_31)};
+    if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
+    opt_choice_list("TOTK_FSR_VERSION", UI_MENU_FSR_VERSION, fv, fn, 2, UI_MENU_FSR_VERSION_DESC);
     static const char *const sv[] = {"", "game", "0", "50", "100"};
     const char *sn[] = {menu_text(UI_MENU_SCENE_SHARP_AUTO), menu_text(UI_MENU_SCENE_SHARP_GAME), "0 %", "50 %", "100 %"};
     if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);

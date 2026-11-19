@@ -23,6 +23,7 @@
 // flips it to test the other convention.
 #include "vk_ffx.h"
 
+#include "vk_ffx_fetch.h"
 #include "cfg.h"
 #include "host.h"
 
@@ -94,6 +95,7 @@ int vk_ffx_lib_present(void) {
 static int loader_load(void) {
     if (F.tried) return F.loaded;
     F.tried = 1;
+    if (!vk_ffx_lib_present()) vk_ffx_fetch_blocking();   // AMD's signed DLLs from the FidelityFX SDK repository
     wchar_t path[MAX_PATH + 64];
     DWORD len = GetModuleFileNameW(NULL, path, MAX_PATH);
     while (len && path[len - 1] != L'\\') len--;

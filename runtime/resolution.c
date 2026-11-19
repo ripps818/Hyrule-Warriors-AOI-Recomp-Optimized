@@ -39,6 +39,7 @@
 #include "host.h"
 #include "hwaoi_display.h"
 #include "vk_ffx.h"
+#include "vk_ffx_fetch.h"
 
 #define BASE_W 1920
 #define BASE_H 1080
@@ -226,10 +227,11 @@ void res_init(void) {
             if (!cfg_get("TOTK_SCENE_RES") && !strcmp(cfg_value("TOTK_TEMPORAL"), "fsr") && strcmp(quality, "native")) {
                 if (!hwaoi_display_fsr_scene(size, quality, scene))
                     rt_fatal("resolution: FSR_QUALITY=%s unsupported; choose native, quality, balanced or performance", quality);
+                if (!vk_ffx_lib_present()) vk_ffx_fetch_blocking();   // Windows: AMD's DLLs from the SDK repository
                 if (!vk_ffx_lib_present()) {
                     scene[0] = size[0], scene[1] = size[1];
-                    rt_log("resolution: FSR_QUALITY=%s needs " VK_FFX_LINUX_LIB " next to the executable "
-                           "(tools/build_fsr4_vk.sh); the scene stays at the output size", quality);
+                    rt_log("resolution: FSR_QUALITY=%s needs the FSR library next to the executable "
+                           "(Linux: tools/build_fsr4_vk.sh; Windows: downloaded automatically); the scene stays at the output size", quality);
                 } else {
                     rt_log("resolution: FSR_QUALITY=%s: scene %ux%u for FSR to scale to %ux%u", quality, scene[0], scene[1],
                            size[0], size[1]);
