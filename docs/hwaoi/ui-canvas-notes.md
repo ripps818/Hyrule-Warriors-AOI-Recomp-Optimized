@@ -44,6 +44,28 @@ Map icons and minimap markers stay in canvas units at the output's pixel ortho. 
   float pairs near 1e9xxxx are DRS UV clamps. add610 mode 1 (ortho camera) forced to 1920x1080 changes nothing
   visible.
 
+### Second attempt (icons), findings
+
+- Instance translations are pure canvas: (879.175, 534.005) appears at 720p, 1080p and at 1440p with the set on or
+  off, so they do not depend on the layer size or the output. Text does (anchor * output / layer + output / 2); with
+  hwaoi_ui_canvas the layer size is 1920x1080, which is what makes text scale.
+- Combinations tried with a host rewrite of the window draws' pixel ortho to 2/1920, 2/1080: (a) layer size =
+  output + perspective distance patched: icons right, text offset by (output-1920)/2; (b) layer size = canvas
+  (current set): icons right, text over-scaled by output/1920. Text and icons use the same ortho, so the ortho is
+  not the place: one of the two producers has to change.
+- The render thread does not build these values. It interprets a command list: "set constant" commands
+  (e.g. main+726f14) fill the constant buffer that holds the per-instance rows, and main+679e20 copies the text glyph
+  vertices (already in output pixels) from command data into the vertex ring. Both are written on the game thread by
+  the KT "kids" 2D batcher before the render thread runs.
+- Watchpoint tool (temporary, removed): PROT_NONE on one page plus a SIGSEGV hook in runtime/platform/linux.c
+  fault_handler that logs unique host pcs touching a range, unprotects, single-steps with EFLAGS.TF and re-protects in
+  a SIGTRAP handler. Map host+offset to `f_<guest address>` with `nm -n` on the executable. Results: an object holding
+  a matrix with the icon translation is read by f_7000aa6280 (matrix inverse) and f_7000aa8a20 (not the emitter); a
+  float pair equal to the output size in the heap was a freed and reused allocation (writers are destructors). Next:
+  watch the command-list memory that main+679e20 / 726f14 read, to reach the game-thread code that writes
+  icon instance rows. That code should apply output / layer like text does (or the canvas offset, for icons
+  placed relative to the top-left).
+
 ## Method
 
 Temporary probe in nvn_api_cmd.c: on draws into the window image (nvn_is_window_tex of SetRenderTargets' color 0)
