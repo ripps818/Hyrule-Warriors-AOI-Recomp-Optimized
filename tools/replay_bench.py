@@ -49,6 +49,7 @@ def run_once(script, seconds, env_extra, label, profile, snapshot, fresh):
     env.setdefault("HWAOI_AUDIO", "none")
     env.setdefault("SDL_WINDOW_ACTIVATE_WHEN_SHOWN", "0")
     env.setdefault("TOTK_ASSUME_FOCUS", "1")
+    env.setdefault("DISABLE_LSFGVK", "1")   # lsfg-vk (frame generation) profiles match this executable by name; it would distort GPU timing
     env.update(env_extra)
     proc = subprocess.run([sys.executable, str(ROOT / "tools/hwaoi.py"), "launch", "--profile-dir", str(profile),
                            "--replay-script", str(Path(script).resolve())], env=env, cwd=ROOT,
