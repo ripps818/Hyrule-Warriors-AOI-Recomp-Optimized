@@ -72,3 +72,17 @@ Temporary probe in nvn_api_cmd.c: on draws into the window image (nvn_is_window_
 log the guest frame-pointer chain, the first 256 bytes of each bound UBO and vertex buffer 0; a host-side rewrite of
 the UBO's distance/ortho confirmed each hypothesis before patching. A scan of rw mappings for the camera distance
 found the camera objects (near 0.1, far 20000, fov 0.785398), whose constants led to the 577xxx setup.
+
+## Host experiment: origin-scaling instanced window draws (reverted)
+
+With the canvas patch on, draws into the window image with more than one instance were given a viewport and scissor
+scaled about the TOP-LEFT by pass_w / 1920 (record_fixed), to test the idea that the icons are instanced sprites in
+canvas units. Window captures of the Map screen and the minimap at 3840x2160 against 1920x1080:
+- The tower glyph on the Map screen landed exactly where it is at 1080p.
+- The orange diamond markers and the green square still land at about 0.5-0.8 of their 1080p positions (up-left), so they
+  are not drawn through the same instanced path (or are scaled by a second factor).
+- The minimap objective marker and the orange enemy dots were not visible inside the minimap at 3840x2160 with or without
+  the experiment; at 1080p they are. So at least two icon classes exist and the host cannot tell them apart by instance
+  count. The fix has to be at the game-thread 2D batcher that writes the icon rows (see the notes above), not in the
+  window pass. Capture method used: a temporary swapchain capture in present_image (menu_shot path), every 150th frame,
+  with battle-slow2.txt (the Map screen appears when the replay loses sync at 4K).
