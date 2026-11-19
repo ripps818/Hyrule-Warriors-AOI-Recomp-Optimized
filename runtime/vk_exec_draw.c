@@ -2800,13 +2800,21 @@ static void bind_pipeline(VkExec *ex, VkPipelineBindPoint bp, VkPipeline p) {
     if (!k) B.st_valid = 0;
 }
 
+static int g_ui_comp, g_ui_comp_prev;   // the draw being recorded is the one ui_fill_draw recognises
+
 static void record_fixed(VkExec *ex) {
     VkCommandBuffer cb = ex->cb;
+    if (g_ui_comp != g_ui_comp_prev) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT;
+    g_ui_comp_prev = g_ui_comp;
     if (ex->dirty & VK_EXEC_DIRTY_VIEWPORT) {
         float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
         if (ex->has_vp) x = ex->vp[0][0], y = ex->vp[0][1], w = ex->vp[0][2], h = ex->vp[0][3];
         if (w < 1) w = 1;
         if (h < 1) h = 1;
+        if (g_ui_comp) {
+            float f = (float)ex->pass_w / 1920.0f, cx = (float)ex->pass_w * 0.5f, cy = (float)ex->pass_h * 0.5f;
+            x = cx + (x - cx) * f, y = cy + (y - cy) * f, w *= f, h *= f;
+        }
         VkViewport v = {x, y + h, w, -h, ex->depth_range[0], ex->depth_range[1]};   // the y flip: negative height
         vkCmdSetViewportWithCount(cb, 1, &v);
         ex->recorded++;
@@ -3128,6 +3136,35 @@ static int indirect_can_stay_in_pass(const VkExec *ex, uint64_t addr, uint64_t s
 }
 
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
+// With an output above 1920 wide, the title screen and movies end with a full-frame 6-vertex pass that copies the
+// output-sized picture back, scaled by 1920 / output width about the centre, which leaves it as a 1080p block in
+// black (HWAOI_UI_FILL=0 disables the correction). That pass is recognised by its shape (pass wider than 1920,
+// 6 vertices, exactly one texture sampled, of the pass's own size), and record_fixed enlarges its viewport by
+// output width / 1920 about the centre, which undoes the shrink. Battle frames contain no such pass.
+static int ui_fill_draw(VkExec *ex, const GfxShader *fs, int32_t count) {
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("HWAOI_UI_FILL"); on = !e || strcmp(e, "0") != 0; }
+    if (!on || ex->pass_w <= 1920 || count != 6 || !fs) return 0;
+    const GfxShaderRes *res;
+    int n = gfx_shader_resources(fs, GFX_RES_TEX, &res), st = nvn_stage_of(gfx_shader_stage(fs)), found = 0, smp = 0;
+    if (st < 0) return 0;
+    vk_texture_lock();
+    for (int r = 0; r < n; r++)
+        for (int k = 0; k < (res[r].count ? res[r].count : 1); k++) {
+            int slot = res[r].slot + k;
+            uint64_t h = slot >= 0 && slot < 128 ? ex->tex[st][slot] : 0;
+            if (!h) continue;
+            view_t v;
+            int hv;
+            const VkTexImage *img = vk_texture_by_id_locked(&ex->tex_pool, (int)(h & 0xfffff), &v, &hv);
+            if (!img) continue;
+            smp++;
+            found += img->width == ex->pass_w && img->height == ex->pass_h;
+        }
+    vk_texture_unlock();
+    return found == 1 && smp == 1;
+}
+
 static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (ex->render_disabled) return 0;
     static int skip_all = -1;   // DKB_SKIP_DRAWS=1: drop every draw (bisecting GPU faults)
@@ -3208,6 +3245,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (light_quad_fault_skip(ex, vs, fs)) return 0;
     if (!vs || (has_fs && !fs) || (want_gs && (!has_gs || !gs))) return 0;
     if (!geometry_feedback_safe(ex, vs, gs)) return 0;
+    g_ui_comp = ui_fill_draw(ex, fs, count);
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s;
     MX_CPY(&s, &ex->pipe, sizeof s);
