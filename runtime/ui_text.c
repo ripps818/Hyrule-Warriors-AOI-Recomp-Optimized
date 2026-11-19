@@ -55,7 +55,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
 #if RT_TARGET_HWAOI
     [UI_MENU_OUTPUT_RES_DESC] = "Native size of both the 3D scene and game output. Restart to apply. Higher resolutions "
                                 "are unstable and use more GPU time and memory. Non-1080p UI/movie scaling is "
-                                "still being adapted. Window size is separate.",
+                                "still being adapted. 3840 x 2160 output may fail to load; FSR quality (below) is the recommended way to reach 4K. "
+                                "Window size is separate.",
 #else
     [UI_MENU_OUTPUT_RES_DESC] = "The size the game draws its picture and interface in. Above 1920 x 1080 the game needs "
                                 "more video memory and GPU time. A wider size (21:9) widens the camera's view and moves "
@@ -70,6 +71,17 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER_DESC] = "How the picture is scaled when the window is larger than the game resolution. FSR keeps "
                               "edges and detail sharper than bilinear.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
+    [UI_MENU_SCALE_OFF] = "Off (bilinear)", [UI_MENU_SCALE_FSR1] = "FSR 1 (spatial)",
+    [UI_MENU_UPSCALER_FSR4] = "FSR 4 (temporal)",
+    [UI_MENU_UPSCALER_FSR4_DESC] = "Off: bilinear scaling to the window. FSR 1: spatial AMD FSR scaling of the finished "
+                                   "picture. FSR 4: temporal anti-aliasing and upscaling of the 3D scene from motion "
+                                   "vectors (the window scaling stays FSR 1). Needs amd_fidelityfx_upscaler_vk.so next to "
+                                   "the game. Switching to or from FSR 4 applies after restart.",
+    [UI_MENU_NEEDS_FSR4] = "Only used with FSR 4 (temporal).",
+    [UI_MENU_SCENE_SHARP] = "Game's own sharpening (FSR 4)",
+    [UI_MENU_SCENE_SHARP_DESC] = "Whether the game's own sharpening stays on while FSR 4 runs. Automatic turns it off "
+                                 "(FSR 4 sharpens instead); Game's own keeps it; a number sets its strength.",
+    [UI_MENU_SCENE_SHARP_AUTO] = "Automatic (off)", [UI_MENU_SCENE_SHARP_GAME] = "Game's own",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
                             "screen): keep the picture's shape with black bars, or stretch it over the window.",
@@ -78,6 +90,30 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_FOV_DESC] = "How much of the world the camera shows, in percent of the game's own. Game version 1.4.3 only.",
     [UI_MENU_SHARPNESS] = "FSR sharpness",
     [UI_MENU_SHARPNESS_DESC] = "Sharpening after FSR scaling; 0 turns it off.",
+    [UI_MENU_UPSCALING] = "Anti-aliasing and upscaling",
+    [UI_MENU_AA] = "Anti-aliasing (SMAA)",
+    [UI_MENU_AA_DESC] = "SMAA smooths jagged edges in the final picture at a small GPU cost.",
+    [UI_MENU_OPT_OFF] = "Off", [UI_MENU_AA_SMAA] = "SMAA",
+    [UI_MENU_FFX_MISSING] = "Needs amd_fidelityfx_upscaler_vk.so next to the game.",
+    [UI_MENU_FSR_QUALITY] = "FSR 4 quality",
+    [UI_MENU_FSR_QUALITY_DESC] = "The 3D scene is drawn smaller and upscaled to the output size by FSR. Native: same "
+                                 "size (anti-aliasing only). Quality, Balanced and Performance draw less and run faster. "
+                                 "The recommended way to reach 4K: keep the output at 1920 x 1080 or 2560 x 1440 and "
+                                 "raise the window size, or pick 3840 x 2160 output with Quality. Used with the temporal "
+                                 "upscaler.",
+    [UI_MENU_FSR_Q_NATIVE] = "Native", [UI_MENU_FSR_Q_QUALITY] = "Quality", [UI_MENU_FSR_Q_BALANCED] = "Balanced",
+    [UI_MENU_FSR_Q_PERFORMANCE] = "Performance",
+    [UI_MENU_FSR_SHARPNESS] = "FSR 4 sharpness",
+    [UI_MENU_FSR_SHARPNESS_DESC] = "Sharpening applied by the temporal upscaler; 0 turns it off. While it runs, the "
+                                   "game's own sharpening is replaced by this.",
+    [UI_MENU_HDR_GROUP] = "HDR",
+    [UI_MENU_HDR] = "HDR output",
+    [UI_MENU_HDR_DESC] = "Sends the picture to an HDR10 display. Currently it encodes the SDR picture (no extra highlight "
+                         "range) and needs an HDR-enabled display (Wayland on KDE with HDR on); otherwise the picture "
+                         "stays SDR.",
+    [UI_MENU_HDR_PEAK] = "HDR peak brightness", [UI_MENU_HDR_PEAK_DESC] = "The display's peak brightness in nits.",
+    [UI_MENU_HDR_GAME] = "HDR picture brightness", [UI_MENU_HDR_GAME_DESC] = "Brightness of white in the game picture, in nits.",
+    [UI_MENU_HDR_UI] = "HDR interface brightness", [UI_MENU_HDR_UI_DESC] = "Brightness of white in the HUD and menus, in nits.",
     [UI_MENU_COLOR] = "Colour",
     [UI_MENU_COLOR_PRESET] = "Colour profile",
     [UI_MENU_COLOR_PRESET_DESC] = "Sets the four values below. Vivid: more contrast and saturation, shadows opened a "
@@ -362,6 +398,17 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER_DESC] = "Как картинка растягивается, когда окно больше разрешения игры. FSR сохраняет края и "
                               "детали чётче билинейного.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное",
+    [UI_MENU_SCALE_OFF] = "Выкл. (билинейное)", [UI_MENU_SCALE_FSR1] = "FSR 1 (пространств.)",
+    [UI_MENU_UPSCALER_FSR4] = "FSR 4 (временный)",
+    [UI_MENU_UPSCALER_FSR4_DESC] = "Выкл.: билинейное масштабирование под окно. FSR 1: пространственное масштабирование "
+                                   "готовой картинки. FSR 4: временное сглаживание и апскейл 3D-сцены по векторам "
+                                   "движения. Нужен amd_fidelityfx_upscaler_vk.so рядом с игрой. Переключение на FSR 4 и "
+                                   "с него — после перезапуска.",
+    [UI_MENU_NEEDS_FSR4] = "Только с FSR 4 (временный).",
+    [UI_MENU_SCENE_SHARP] = "Резкость игры (FSR 4)",
+    [UI_MENU_SCENE_SHARP_DESC] = "Остаётся ли собственная резкость игры при работе FSR 4. Автоматически выключена "
+                                 "(резкость даёт FSR 4); число задаёт силу.",
+    [UI_MENU_SCENE_SHARP_AUTO] = "Авто (выкл.)", [UI_MENU_SCENE_SHARP_GAME] = "Как в игре",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
                             "форму картинки с чёрными полосами или растянуть её на всё окно.",
@@ -370,6 +417,27 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_FOV_DESC] = "Сколько мира показывает камера, в процентах от игрового. Только для версии игры 1.4.3.",
     [UI_MENU_SHARPNESS] = "Резкость FSR",
     [UI_MENU_SHARPNESS_DESC] = "Повышение резкости после масштабирования FSR; 0 выключает его.",
+    [UI_MENU_UPSCALING] = "Сглаживание и апскейл",
+    [UI_MENU_AA] = "Сглаживание (SMAA)",
+    [UI_MENU_AA_DESC] = "SMAA сглаживает неровные края итоговой картинки при небольшой нагрузке на GPU.",
+    [UI_MENU_OPT_OFF] = "Выкл.", [UI_MENU_AA_SMAA] = "SMAA",
+    [UI_MENU_FFX_MISSING] = "Нужен amd_fidelityfx_upscaler_vk.so рядом с игрой.",
+    [UI_MENU_FSR_QUALITY] = "Качество FSR 4",
+    [UI_MENU_FSR_QUALITY_DESC] = "3D-сцена рисуется меньше и растягивается FSR до выходного размера. Нативное: тот же "
+                                 "размер (только сглаживание). Остальные режимы быстрее. Рекомендуемый путь к 4K: "
+                                 "выход 3840 x 2160 с режимом Качество. Работает с временным апскейлом.",
+    [UI_MENU_FSR_Q_NATIVE] = "Нативное", [UI_MENU_FSR_Q_QUALITY] = "Качество", [UI_MENU_FSR_Q_BALANCED] = "Баланс",
+    [UI_MENU_FSR_Q_PERFORMANCE] = "Производительность",
+    [UI_MENU_FSR_SHARPNESS] = "Резкость FSR 4",
+    [UI_MENU_FSR_SHARPNESS_DESC] = "Повышение резкости временным апскейлом; 0 выключает его. Пока он работает, "
+                                   "собственная резкость игры заменяется этой.",
+    [UI_MENU_HDR_GROUP] = "HDR",
+    [UI_MENU_HDR] = "Вывод HDR",
+    [UI_MENU_HDR_DESC] = "Отправляет картинку на HDR10-дисплей. Пока кодируется SDR-картинка (без дополнительного "
+                         "диапазона светов); нужен дисплей с включённым HDR (Wayland в KDE), иначе картинка остаётся SDR.",
+    [UI_MENU_HDR_PEAK] = "Пиковая яркость HDR", [UI_MENU_HDR_PEAK_DESC] = "Пиковая яркость дисплея в нитах.",
+    [UI_MENU_HDR_GAME] = "Яркость картинки HDR", [UI_MENU_HDR_GAME_DESC] = "Яркость белого в картинке игры, в нитах.",
+    [UI_MENU_HDR_UI] = "Яркость интерфейса HDR", [UI_MENU_HDR_UI_DESC] = "Яркость белого в HUD и меню, в нитах.",
     [UI_MENU_COLOR] = "Цвет",
     [UI_MENU_COLOR_PRESET] = "Цветовой профиль",
     [UI_MENU_COLOR_PRESET_DESC] = "Задаёт четыре значения ниже. «Яркий»: больше контраста и насыщенности, тени немного "

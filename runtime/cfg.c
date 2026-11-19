@@ -62,7 +62,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
     {"FULLSCREEN", "display"}, {"WINDOW_SIZE", "display"}, {"PERF_OVERLAY", "display"}, {"VK_PRESENT", "display"},
     {"GPU_INDEX", "display"}, {"OUTPUT_RES", "display"}, {"RENDER_SCALE", "display"}, {"UPSCALER", "display"},
-    {"SHARPNESS", "display"}, {"ANTIALIASING", "display"}, {"TEMPORAL", "display"}, {"FSR_QUALITY", "display"}, {"FSR_SHARPNESS", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"COLOR_PRESET", "display"},
+    {"SHARPNESS", "display"}, {"ANTIALIASING", "display"}, {"TEMPORAL", "display"}, {"FSR_QUALITY", "display"}, {"FSR_SHARPNESS", "display"}, {"SCENE_SHARPNESS", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"COLOR_PRESET", "display"},
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
     {"HDR_UI_NITS", "display"},
@@ -115,6 +115,8 @@ static const CfgMeta metas[] = {
     // temporal AA / upscaling (vk_temporal.c): device extensions and the scene size are set at start
     {"TEMPORAL", "off", "off|fsr", RESTART}, {"FSR_QUALITY", "native", "native|quality|balanced|performance", RESTART},
     {"FSR_SHARPNESS", "50", "0..100", LIVE},
+    // the game's own sharpening while temporal AA runs: unset = off then (FSR sharpens), game, or 0..100; read once
+    {"SCENE_SHARPNESS", "", NULL, RESTART},
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     // colour adjustment (vk_color.c); the preset is the menu's, the four values are what the present uses
     {"COLOR_PRESET", "default", "default|vivid|clarity|custom", LIVE}, {"COLOR_BRIGHTNESS", "0", "-30..30", LIVE},

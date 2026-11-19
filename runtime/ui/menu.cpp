@@ -45,6 +45,7 @@ extern "C" {
 #include "ui_text.h"
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+int vk_ffx_lib_present(void);   // vk_ffx.h
 void vk_queue_lock(void);
 void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
@@ -627,6 +628,49 @@ static void rows_color(void) {
     }
 }
 
+// HWAoI: one scaling selector over two keys: Off = UPSCALER bilinear, FSR 1 = UPSCALER fsr, FSR 4 = UPSCALER fsr plus
+// TEMPORAL fsr (vk_temporal.c; the window scaling stays FSR 1). TEMPORAL is read at start, so the row says "after
+// restart" once its value differs from the one the game started with.
+static bool fsr4_on(void) { return !strcmp(cfg_value("TOTK_TEMPORAL"), "fsr"); }
+
+static void row_scaling(void) {
+    static const UiTextId names[] = {UI_MENU_SCALE_OFF, UI_MENU_SCALE_FSR1, UI_MENU_UPSCALER_FSR4};
+    static const bool at_start = fsr4_on();
+    bool lib = vk_ffx_lib_present() != 0;
+    int cur = fsr4_on() ? 2 : !strcmp(cfg_value("TOTK_UPSCALER"), "fsr") ? 1 : 0;
+    int pick = opt_select("TOTK_UPSCALER", UI_MENU_UPSCALER, names, 3, cur, UI_MENU_UPSCALER_FSR4_DESC, 1,
+                          lib ? -1 : 2, fsr4_on() != at_start, lib ? nullptr : menu_text(UI_MENU_FFX_MISSING));
+    if (pick < 0) return;
+    cfg_set("TOTK_UPSCALER", pick == 0 ? "bilinear" : "fsr");
+    cfg_set("TOTK_TEMPORAL", pick == 2 ? "fsr" : "off");
+    opt_save_soon();
+}
+
+// HWAoI: SMAA, and the FSR 4 sub-rows (greyed out unless FSR 4 is selected).
+static void rows_upscaling(void) {
+    opt_group(UI_MENU_UPSCALING);
+    static const UiTextId aa[] = {UI_MENU_OPT_OFF, UI_MENU_AA_SMAA};
+    opt_choice("TOTK_ANTIALIASING", UI_MENU_AA, aa, 2, UI_MENU_AA_DESC);
+    static const UiTextId q[] = {UI_MENU_FSR_Q_NATIVE, UI_MENU_FSR_Q_QUALITY, UI_MENU_FSR_Q_BALANCED,
+                                 UI_MENU_FSR_Q_PERFORMANCE};
+    if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
+    opt_choice("TOTK_FSR_QUALITY", UI_MENU_FSR_QUALITY, q, 4, UI_MENU_FSR_QUALITY_DESC);
+    if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
+    opt_slider("TOTK_FSR_SHARPNESS", UI_MENU_FSR_SHARPNESS, 0, 100, UI_MENU_FSR_SHARPNESS_DESC, 5, "%.0f %%");
+    static const char *const sv[] = {"", "game", "0", "50", "100"};
+    const char *sn[] = {menu_text(UI_MENU_SCENE_SHARP_AUTO), menu_text(UI_MENU_SCENE_SHARP_GAME), "0 %", "50 %", "100 %"};
+    if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
+    opt_choice_list("TOTK_SCENE_SHARPNESS", UI_MENU_SCENE_SHARP, sv, sn, 5, UI_MENU_SCENE_SHARP_DESC);
+}
+
+static void rows_hdr(void) {
+    opt_group(UI_MENU_HDR_GROUP);
+    opt_toggle("TOTK_HDR", UI_MENU_HDR, UI_MENU_HDR_DESC);
+    opt_slider("TOTK_HDR_PEAK_NITS", UI_MENU_HDR_PEAK, 400, 10000, UI_MENU_HDR_PEAK_DESC, 50, "%.0f nits");
+    opt_slider("TOTK_HDR_GAME_NITS", UI_MENU_HDR_GAME, 80, 500, UI_MENU_HDR_GAME_DESC, 5, "%.0f nits");
+    opt_slider("TOTK_HDR_UI_NITS", UI_MENU_HDR_UI, 80, 500, UI_MENU_HDR_UI_DESC, 5, "%.0f nits");
+}
+
 static void tab_screen(float scale) {
     opt_begin("##screen", scale);
     static const UiTextId fullscreen[] = {UI_MENU_WINDOWED, UI_MENU_FULLSCREEN_MODE};   // TOTK_FULLSCREEN 0, 1
@@ -640,13 +684,19 @@ static void tab_screen(float scale) {
     opt_group(UI_MENU_GRAPHICS);
     row_output_res();
     row_render_scale();
-    static const UiTextId up[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
-    opt_choice("TOTK_UPSCALER", UI_MENU_UPSCALER, up, 2, UI_MENU_UPSCALER_DESC);
+    if (RT_TARGET_HWAOI) {
+        row_scaling();
+    } else {
+        static const UiTextId up[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
+        opt_choice("TOTK_UPSCALER", UI_MENU_UPSCALER, up, 2, UI_MENU_UPSCALER_DESC);
+    }
     opt_slider("TOTK_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
     opt_choice("TOTK_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
     opt_slider("TOTK_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
+    if (RT_TARGET_HWAOI) rows_upscaling();
     rows_color();
+    if (RT_TARGET_HWAOI) rows_hdr();
     opt_end();
 }
 
