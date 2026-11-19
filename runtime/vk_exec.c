@@ -158,7 +158,9 @@ void vk_exec_frame_written(const tex_t *t) {
     fw[nfw++].n = 1;
 }
 
+extern volatile int g_ui_frame_end;
 void vk_exec_frame_log(const tex_t *p, uint64_t frame) {
+    g_ui_frame_end = 1;
     readback_diagnostics_frame(frame);
     if (!(rt_trace & RT_TRACE_GFX)) return;
     VkExecFrame *f = &vk_exec_frame;

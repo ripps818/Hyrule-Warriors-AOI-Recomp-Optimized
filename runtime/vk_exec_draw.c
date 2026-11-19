@@ -2804,7 +2804,7 @@ static int g_ui_comp, g_ui_comp_prev;   // the draw being recorded is the one ui
 
 static void record_fixed(VkExec *ex) {
     VkCommandBuffer cb = ex->cb;
-    if (g_ui_comp != g_ui_comp_prev) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT;
+    if (g_ui_comp != g_ui_comp_prev) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
     g_ui_comp_prev = g_ui_comp;
     if (ex->dirty & VK_EXEC_DIRTY_VIEWPORT) {
         float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
@@ -2821,6 +2821,18 @@ static void record_fixed(VkExec *ex) {
     }
     if (ex->dirty & VK_EXEC_DIRTY_SCISSOR) {
         VkRect2D r = vk_exec_scissor(ex);
+        if (g_ui_comp) {   // the same enlargement about the centre as the viewport, clipped to the pass
+            float f = (float)ex->pass_w / 1920.0f, cx = (float)ex->pass_w * 0.5f, cy = (float)ex->pass_h * 0.5f;
+            float x0 = cx + ((float)r.offset.x - cx) * f, y0 = cy + ((float)r.offset.y - cy) * f;
+            float x1 = cx + ((float)r.offset.x + (float)r.extent.width - cx) * f, y1 = cy + ((float)r.offset.y + (float)r.extent.height - cy) * f;
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 > (float)ex->pass_w) x1 = (float)ex->pass_w;
+            if (y1 > (float)ex->pass_h) y1 = (float)ex->pass_h;
+            r.offset.x = (int32_t)x0, r.offset.y = (int32_t)y0;
+            r.extent.width = x1 > x0 ? (uint32_t)(x1 - x0) : 0, r.extent.height = y1 > y0 ? (uint32_t)(y1 - y0) : 0;
+            if (!r.extent.width || !r.extent.height) r.extent.width = r.extent.height = 1;
+        }
         vkCmdSetScissorWithCount(cb, 1, &r);
         ex->recorded++;
     }
@@ -3136,11 +3148,14 @@ static int indirect_can_stay_in_pass(const VkExec *ex, uint64_t addr, uint64_t s
 }
 
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
+volatile int g_ui_frame_end;   // set at each present (vk_exec_frame_log): the next draw starts a new frame
+
 // With an output above 1920 wide, the title screen and movies end with a full-frame 6-vertex pass that copies the
 // output-sized picture back, scaled by 1920 / output width about the centre, which leaves it as a 1080p block in
 // black (HWAOI_UI_FILL=0 disables the correction). That pass is recognised by its shape (pass wider than 1920,
 // 6 vertices, exactly one texture sampled, of the pass's own size), and record_fixed enlarges its viewport by
-// output width / 1920 about the centre, which undoes the shrink. Battle frames contain no such pass.
+// output width / 1920 about the centre, which undoes the shrink; the draws after it in wide passes (the title's logo and
+// menu, laid out as a centred 1920 canvas) get the same enlargement. Battle frames contain no such pass.
 static int ui_fill_draw(VkExec *ex, const GfxShader *fs, int32_t count) {
     static int on = -1;
     if (on < 0) { const char *e = getenv("HWAOI_UI_FILL"); on = !e || strcmp(e, "0") != 0; }
@@ -3245,7 +3260,14 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (light_quad_fault_skip(ex, vs, fs)) return 0;
     if (!vs || (has_fs && !fs) || (want_gs && (!has_gs || !gs))) return 0;
     if (!geometry_feedback_safe(ex, vs, gs)) return 0;
-    g_ui_comp = ui_fill_draw(ex, fs, count);
+    {   // the 2D layer drawn after that pass (logo, menu, text) is laid out as a centred 1920 canvas too; the next present
+        // ends it
+        static int after_fill;
+        int fill = ui_fill_draw(ex, fs, count);
+        if (g_ui_frame_end) after_fill = 0, g_ui_frame_end = 0;
+        if (fill) after_fill = 1;
+        g_ui_comp = fill || (after_fill && ex->pass_w > 1920);
+    }
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s;
     MX_CPY(&s, &ex->pipe, sizeof s);
