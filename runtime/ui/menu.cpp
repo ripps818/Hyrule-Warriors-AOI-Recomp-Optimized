@@ -655,8 +655,6 @@ static void rows_upscaling(void) {
                                  UI_MENU_FSR_Q_PERFORMANCE};
     if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
     opt_choice("TOTK_FSR_QUALITY", UI_MENU_FSR_QUALITY, q, 4, UI_MENU_FSR_QUALITY_DESC);
-    if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);
-    opt_slider("TOTK_FSR_SHARPNESS", UI_MENU_FSR_SHARPNESS, 0, 100, UI_MENU_FSR_SHARPNESS_DESC, 5, "%.0f %%");
     static const char *const sv[] = {"", "game", "0", "50", "100"};
     const char *sn[] = {menu_text(UI_MENU_SCENE_SHARP_AUTO), menu_text(UI_MENU_SCENE_SHARP_GAME), "0 %", "50 %", "100 %"};
     if (!fsr4_on()) opt_disable_next(UI_MENU_NEEDS_FSR4);

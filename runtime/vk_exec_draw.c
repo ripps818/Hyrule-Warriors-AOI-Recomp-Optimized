@@ -1540,7 +1540,7 @@ static int hwaoi_scene_sharpness_override(VkExec *ex, int stage, int slot,
     if (!RT_TARGET_HWAOI || stage != NVN_STAGE_CS || slot != 3 || !ex || !ex->prog) return 0;
     static int percent = -2;
     if (percent == -2 && !cfg_get("TOTK_SCENE_SHARPNESS") && vk_temporal_running()) {
-        percent = 0;   // FSR sharpens instead (HWAOI_FSR_SHARPNESS); an explicit SCENE_SHARPNESS still wins
+        percent = 0;   // FSR sharpens instead (HWAOI_SHARPNESS); an explicit SCENE_SHARPNESS still wins
         rt_log("scene sharpness: the game's RCAS strength 0 while the temporal AA runs");
     }
     if (percent == -2 && !hwaoi_scene_sharpness_parse(cfg_get("TOTK_SCENE_SHARPNESS"), &percent))

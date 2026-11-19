@@ -22,7 +22,7 @@
 //   the camera's only (shaders/temporal_mv.comp). Characters and crowds that move on their own get no vectors of their
 //   own and can trail.
 // The game's RCAS (the scene sharpness override, vk_exec_draw.c) and the present's SMAA are off while FSR runs; FSR's
-// own sharpening (HWAOI_FSR_SHARPNESS, 0..100) takes their place.
+// own sharpening (HWAOI_SHARPNESS, 0..100) takes their place.
 #include "vk_temporal.h"
 
 #include <math.h>
@@ -113,7 +113,7 @@ int vk_temporal_active(void) {
         T.jit_ok = 0, T.reset = 1;
         rt_log("temporal: FSR native AA on the lighting target (%s); jitter %s, camera motion %s, sharpness %d",
                vk_ffx_version(), knob("TEMPORAL_JITTER", 1) ? "on" : "off", knob("TEMPORAL_MV", 1) ? "on" : "off",
-               cfg_int("TOTK_FSR_SHARPNESS"));
+               cfg_int("TOTK_SHARPNESS"));
     }
     return 1;
 }
@@ -413,7 +413,7 @@ static void fsr(VkExec *ex, VkImage color, VkFormat cf, VkImage dst, uint32_t le
     uint64_t now = plat_now_ns();
     double dt = T.last_ns ? (double)(now - T.last_ns) / 1e6 : 0;
     T.last_ns = now;
-    int sharp = cfg_int("TOTK_FSR_SHARPNESS");
+    int sharp = cfg_int("TOTK_SHARPNESS");
     VkFfxDispatch d = {.color = {color, cf, w, h}, .depth = {T.zcopy.img, VK_FORMAT_R32_SFLOAT, w, h},
                        .mv = {T.mv.img, VK_FORMAT_R16G16_SFLOAT, w, h},
                        .out = {T.out.img, VK_FORMAT_R16G16B16A16_SFLOAT, ow, oh},
