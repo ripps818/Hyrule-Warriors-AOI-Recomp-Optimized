@@ -853,6 +853,13 @@ NVN_API(nvnWindowGetNumActiveTextures) {
 }
 NVN_API(nvnWindowBuilderSetPresentInterval) { WB(c)->interval = (int)arg_x(c, 1); }
 // NVNboolean nvnWindowInitialize(NVNwindow *w, const NVNwindowBuilder *b)
+// The window's images, by Initialization serial: a render target that carries one is the frame being presented.
+static uint64_t g_win_serial[8];
+int nvn_is_window_tex(const tex_t *t) {
+    for (int k = 0; t && k < 8; k++)
+        if (g_win_serial[k] && g_win_serial[k] == t->serial) return 1;
+    return 0;
+}
 NVN_API(nvnWindowInitialize) {
     win_t *o = arg_p(c, 0);
     const win_builder_t *s = arg_p(c, 1);
@@ -868,6 +875,11 @@ NVN_API(nvnWindowInitialize) {
         return;
     }
     memcpy(o->tex, s->tex, sizeof o->tex);
+    for (int i = 0; i < o->ntex; i++) {
+        const tex_t *w = (const tex_t *)o->tex[i];
+        for (int k = 0; w && k < 8; k++)
+            if (!g_win_serial[k]) { g_win_serial[k] = w->serial; break; }
+    }
     const tex_t *t0 = (const tex_t *)o->tex[0];
     NVN_LOG("WindowInitialize %d textures, interval %d, first %ux%u format %#x", o->ntex, o->interval,
             t0 ? t0->d.width : 0, t0 ? t0->d.height : 0, t0 ? t0->d.format : 0);

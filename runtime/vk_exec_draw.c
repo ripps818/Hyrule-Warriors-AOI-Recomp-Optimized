@@ -3168,18 +3168,14 @@ static int indirect_can_stay_in_pass(const VkExec *ex, uint64_t addr, uint64_t s
 }
 
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
-volatile int g_ui_frame_end;   // set at each present (vk_exec_frame_log): the next draw starts a new frame
-
-// With an output above 1920 wide, the title screen and movies end with a full-frame 6-vertex pass that copies the
-// output-sized picture back, scaled by 1920 / output width about the centre, which leaves it as a 1080p block in
-// black (HWAOI_UI_FILL=0 disables the correction). That pass is recognised by its shape (pass wider than 1920,
-// 6 vertices, exactly one texture sampled, of the pass's own size), and record_fixed enlarges its viewport by
-// output width / 1920 about the centre, which undoes the shrink; the draws after it in wide passes (the title's logo and
-// menu, laid out as a centred 1920 canvas) get the same enlargement. Battle frames contain no such pass.
-static int ui_fill_draw(VkExec *ex, const GfxShader *fs, int32_t count) {
+static int ui_fill_on(void) {
     static int on = -1;
     if (on < 0) { const char *e = getenv("HWAOI_UI_FILL"); on = !e || strcmp(e, "0") != 0; }
-    if (!on || ex->pass_w <= 1920 || count != 6 || !fs) return 0;
+    return on;
+}
+
+// How many of the textures a draw samples have the pass's own size (the finished frame); *smp_out: how many it samples.
+static int own_size_samples(VkExec *ex, const GfxShader *fs, int *smp_out) {
     const GfxShaderRes *res;
     int n = gfx_shader_resources(fs, GFX_RES_TEX, &res), st = nvn_stage_of(gfx_shader_stage(fs)), found = 0, smp = 0;
     if (st < 0) return 0;
@@ -3197,7 +3193,8 @@ static int ui_fill_draw(VkExec *ex, const GfxShader *fs, int32_t count) {
             found += img->width == ex->pass_w && img->height == ex->pass_h;
         }
     vk_texture_unlock();
-    return found == 1 && smp == 1;
+    *smp_out = smp;
+    return found;
 }
 
 static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
@@ -3281,13 +3278,20 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (!vs || (has_fs && !fs) || (want_gs && (!has_gs || !gs))) return 0;
     if (!geometry_feedback_safe(ex, vs, gs)) return 0;
     g_tjit = vk_temporal_draw(ex, fs, count);   // may run FSR here (the pass is ended and begun again)
-    {   // the 2D layer drawn after that pass (logo, menu, text) is laid out as a centred 1920 canvas too; the next present
-        // ends it
-        static int after_fill;
-        int fill = ui_fill_draw(ex, fs, count);
-        if (g_ui_frame_end) after_fill = 0, g_ui_frame_end = 0;
-        if (fill) after_fill = 1;
-        g_ui_comp = fill || (after_fill && ex->pass_w > 1920);
+    // The game composes the frame into the window's image as if the screen were a centred 1920x1080 canvas: the whole
+    // picture is shrunk to 1920/width, the UI after it is laid out at 1080p. With an output wider than 1920 every draw
+    // into the window image gets the enlargement about the centre, except the scene's own full-screen triangle, which is
+    // already the whole frame (HWAOI_UI_FILL=0 disables).
+    g_ui_comp = 0;
+    if (ui_fill_on() && ex->pass_w > 1920 && ex->color[0].tex && nvn_is_window_tex(ex->color[0].tex)) {
+        // Not the scene's own full-screen triangle, nor the one-texture copy of the frame that follows it in a scene
+        // frame (both already fill the window). Without the triangle (title, splash, movies) that copy is the game's
+        // 1080p-canvas shrink and gets the enlargement too.
+        static int scene_tri;
+        int smp, own = own_size_samples(ex, fs, &smp);
+        if (own && count == 3) scene_tri = 1, g_ui_comp = 0;
+        else if (own && smp == 1 && scene_tri) scene_tri = 0, g_ui_comp = 0;
+        else g_ui_comp = 1;
     }
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s;
