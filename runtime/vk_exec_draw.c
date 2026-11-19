@@ -3170,7 +3170,8 @@ static int indirect_can_stay_in_pass(const VkExec *ex, uint64_t addr, uint64_t s
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
 static int ui_fill_on(void) {
     static int on = -1;
-    if (on < 0) { const char *e = getenv("HWAOI_UI_FILL"); on = !e || strcmp(e, "0") != 0; }
+    // The guest patch set hwaoi_ui_canvas lays the 2D layer out for the output itself; then this enlargement is off.
+    if (on < 0) { const char *e = getenv("HWAOI_UI_FILL"); on = (!e || strcmp(e, "0") != 0) && !rt_patch_enabled(rt_patch_set("hwaoi_ui_canvas")); }
     return on;
 }
 

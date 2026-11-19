@@ -73,6 +73,35 @@ class DisplaySettingsTests(unittest.TestCase):
                     0x1af1afc, 0x1af1b00):
             self.assertEqual(instructions(off)[0].mnemonic, "nop")
 
+    def test_ui_canvas_sites_load_the_canvas_size(self):
+        # Field decoding from the A64 encodings: ADRP, LDR (immediate, unsigned offset, 64-bit), LDP (SIMD&FP, 32-bit,
+        # signed offset). Each site must take its operand from page +0xa8 in place of the original load.
+        table = self.table()
+        rows = table.for_module("main", 0x7000000000)
+        canvas = {off: row for off, row in table.sites["main"].items() if table.sets[row[0]][0] == "hwaoi_ui_canvas"}
+        self.assertEqual(set(canvas), {0x576ff8, 0xadd844, 0xadd874})
+        def adrp_target(pc, word):
+            self.assertEqual(word & 0x9f000000, 0x90000000)
+            imm = ((word >> 5) & 0x7ffff) << 2 | (word >> 29) & 3
+            imm -= (imm >> 20 & 1) << 21
+            return (pc & ~0xfff) + (imm << 12), word & 31
+        expected = {0x576ff8: ("ldr", 25, (25,), 0xf9400119), 0xadd844: ("ldp", 9, (0, 1), 0x2d400680),
+                    0xadd874: ("ldp", 9, (1, 2), 0x2d400a81)}
+        for off, (kind, base, dest, original) in expected.items():
+            self.assertEqual(canvas[off][2], original)
+            adrp, load = rows[0x7000000000 + off][1]
+            target, reg = adrp_target(0x7000000000 + off, adrp)
+            self.assertEqual((target, reg), (table.page, base))
+            self.assertEqual((load >> 5) & 31, base)
+            if kind == "ldr":
+                self.assertEqual(load & 0xffc00000, 0xf9400000)
+                self.assertEqual(((load >> 10) & 0xfff) * 8, 0xa8)
+                self.assertEqual((load & 31,), dest)
+            else:
+                self.assertEqual(load & 0xffc00000, 0x2d400000)
+                self.assertEqual(((load >> 15) & 0x7f) * 4, 0xa8)
+                self.assertEqual((load & 31, (load >> 10) & 31), dest)
+
     def test_native_presets_and_invalid_forms(self):
         cc = Path(os.environ.get("HWAOI_TOOLS", "F:") + "/llvm-mingw/bin/clang.exe")
         if not cc.is_file():
