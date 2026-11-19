@@ -3796,7 +3796,7 @@ static void op_dispatch(VkExec *ex, const p_dispatch *d) {
     VkPipeline p = compute_ready(ex, &cs, &info);
     if (!p) return;
     const int32_t groups[3] = {d->x, d->y, d->z};
-    if (vk_temporal_dispatch(ex, cs, groups)) return;   // replaced by the temporal upscaler
+    if (vk_temporal_dispatch(ex, cs, info, groups)) return;   // replaced by the temporal upscaler
     vk_exec_barrier(ex);   // ends the pass; earlier writes are visible to the shader
     bind_pipeline(ex, VK_PIPELINE_BIND_POINT_COMPUTE, p);
     c0_dim[0] = (uint32_t)d->x, c0_dim[1] = (uint32_t)d->y, c0_dim[2] = (uint32_t)d->z;

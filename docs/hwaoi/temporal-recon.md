@@ -161,3 +161,18 @@ motion from cached instance matrices (object blocks hold per-instance 3x4 world 
 - Debug keys: `HWAOI_TEMPORAL_DEBUG=1` (motion vectors in place of the picture), `HWAOI_TEMPORAL_MV=0`,
   `HWAOI_TEMPORAL_JITTER=0`, `HWAOI_TEMPORAL_LOG=1` (still-camera stretches by present number),
   `HWAOI_FSR_DEBUG=1` (ffx-api checks), `HWAOI_FSR_MODEL=fp8|int8`, `HWAOI_FSR_VERSION`.
+
+### Upscaling (`HWAOI_FSR_QUALITY`, restart)
+
+`quality`, `balanced` and `performance` render the scene at the output divided by 1.5, 1.7 or 2 per side
+(1920x1080: 1280x720, 1130x636, 960x540; `hwaoi_display_fsr_scene`); an explicit `HWAOI_SCENE_RES` wins, and
+without the library the scene stays at the output size (logged). The motion vectors and R32F depth are made at
+the bloom start as in native mode; FSR then runs in place of the game's EASU dispatch (cs `7f87acdabd353565`,
+recognised by its (ow/16)x(oh/16) groups, one scene-size RGBA8 input and one output-size RGBA8 store) on the
+tonemapped LDR picture, which is blitted to RGBA16F first (fsr4-vk takes only float colour, and without auto
+exposure it wants an exposure texture, so both modes use auto exposure). The result is blitted back into the
+EASU's output (sRGB decode/encode through the blits), and RCAS (strength 0) and the HUD follow at output size.
+Checked on battle-slow at 1920x1080: quality and performance run every frame, colours match the game's EASU
+path, silhouettes are clean where the game's EASU+RCAS shows stair-steps and halo noise, the HUD stays sharp.
+Known: the world UI (markers, damage numbers) is drawn into the scene picture before the upscale and gets
+only camera motion, so moving markers can smear; characters trail as in native mode; no texture LOD bias.

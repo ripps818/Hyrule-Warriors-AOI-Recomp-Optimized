@@ -70,12 +70,13 @@ static struct {
     VkImage last_color;
     uint32_t sw, sh;                  // the scene size FSR last ran at: draws with a D32S8 depth of that size jitter
     float jx, jy;                     // the offset this frame's scene draws take
+    float ux, uy;                     // the offset this frame's scene was drawn with (FSR and the motion vectors)
     uint32_t jframe;
     int jit_ok, hold;
     uint64_t last_ns;
     // work images and FSR context for one size
     uint32_t w, h, ow, oh;
-    Img mv, zcopy, out;
+    Img mv, zcopy, out, cin;          // cin: the LDR input as RGBA16F (fsr4-vk takes only float colour)
     void *ctx;
     // motion pass
     VkDescriptorSetLayout dsl;
@@ -239,20 +240,22 @@ static void full_barrier(VkCommandBuffer cb) {
 
 // The work images and FSR's context for a render and output size (a new size frees the old ones).
 static int size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, int hdr) {
-    if (T.ctx && T.w == w && T.h == h && T.ow == ow && T.oh == oh) return 1;
+    if (T.ctx && T.w == w && T.h == h && T.ow == ow && T.oh == oh) return 1;   // the mode (hdr) follows the sizes
     if (T.ctx) {
         vkDeviceWaitIdle(vk_ctx()->device);
         vk_ffx_release(T.ctx), T.ctx = NULL;
-        free_img(&T.mv), free_img(&T.zcopy), free_img(&T.out);
+        free_img(&T.mv), free_img(&T.zcopy), free_img(&T.out), free_img(&T.cin);
     }
     VkImageUsageFlags u = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (!image2d(w, h, VK_FORMAT_R16G16_SFLOAT, u, &T.mv) || !image2d(w, h, VK_FORMAT_R32_SFLOAT, u, &T.zcopy) ||
-        !image2d(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT, u, &T.out))
+        !image2d(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT, u, &T.out) ||
+        (!hdr && !image2d(w, h, VK_FORMAT_R16G16B16A16_SFLOAT, u, &T.cin)))
         return 0;
-    VkImageMemoryBarrier2 ib[3];
-    VkImage im[3] = {T.mv.img, T.zcopy.img, T.out.img};
-    for (int i = 0; i < 3; i++)
+    VkImageMemoryBarrier2 ib[4];
+    VkImage im[4] = {T.mv.img, T.zcopy.img, T.out.img, T.cin.img};
+    uint32_t nim = T.cin.img ? 4 : 3;
+    for (uint32_t i = 0; i < nim; i++)
         ib[i] = (VkImageMemoryBarrier2){.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
                                         .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                         .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -261,7 +264,7 @@ static int size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_t ow, uin
                                         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                                         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = im[i],
                                         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-    VkDependencyInfo di = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 3,
+    VkDependencyInfo di = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = nim,
                            .pImageMemoryBarriers = ib};
     vkCmdPipelineBarrier2(cb, &di);
     T.ctx = vk_ffx_create(w, h, ow, oh, hdr, 1, 0);
@@ -365,19 +368,22 @@ static int mv_pass(VkExec *ex, VkImageView zv, uint32_t w, uint32_t h, float jx,
     return moving;
 }
 
-// ---------------------------------------------------------------- FSR on the lighting target
-static void run_native(VkExec *ex) {
+// ---------------------------------------------------------------- the scene's end and FSR
+// The scene is drawn (the bloom's first draw): the motion vectors and the R32F depth are made from the scene depth
+// now, whether FSR runs right away (native) or at the game's EASU (upscaling), where that depth may be reused.
+static int scene_end(VkExec *ex, uint32_t ow, uint32_t oh, int hdr) {
     const VkExecTarget *t = &T.color, *z = &T.depth;
     uint32_t w = t->width, h = t->height;
     vk_exec_barrier(ex);   // ends the pass: what drew the scene is done
     VkCommandBuffer cb = ex->cb;
-    if (!mv_init()) return fail("motion pass setup");
-    if (!size_for(cb, w, h, w, h, 1)) return fail("work image or FSR context creation");
+    T.ended = 1;
+    if (!mv_init()) return fail("motion pass setup"), 0;
+    if (!size_for(cb, w, h, ow, oh, hdr)) return fail("work image or FSR context creation"), 0;
     if (T.last_color != t->image) T.reset = 1, T.last_color = t->image;
-    float jx = T.jit_used ? T.jx : 0.0f, jy = T.jit_used ? T.jy : 0.0f;
+    T.ux = T.jit_used ? T.jx : 0.0f, T.uy = T.jit_used ? T.jy : 0.0f;
     VkImageView zv = vk_exec_target_view(z->img, z->format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, z->level,
                                          z->base_layer, 1, 0);
-    if (!mv_pass(ex, zv, w, h, jx, jy)) {
+    if (!mv_pass(ex, zv, w, h, T.ux, T.uy)) {
         if (!T.cam_ok) T.nocam++;
         if (!T.cam_ok || !T.prev_ok) T.reset = 1;   // TEMPORAL_MV=0 (a test) keeps the history
     }
@@ -392,39 +398,63 @@ static void run_native(VkExec *ex) {
     }
     if (T.cam_ok) memcpy(T.prev, T.cam, sizeof T.prev);
     T.prev_ok = T.cam_ok;
+    T.sw = w, T.sh = h;
+    vk_exec_draw_new_cb();   // the motion pass bound a pipeline of its own
+    ex->dirty |= VK_EXEC_DIRTY_ALL;
+    return 1;
+}
+
+// FSR from color (the render size) into T.out (RGBA16F, the output size), then T.out blitted into dst: the lighting
+// target (R11G11B10F), or the game's upscaled 8-bit image. fsr4-vk takes only float colour, so an 8-bit input
+// (upscaling) is blitted into T.cin first; sRGB images decode there and encode again into dst.
+static void fsr(VkExec *ex, VkImage color, VkFormat cf, VkImage dst, uint32_t level, uint32_t layer, int copy) {
+    VkCommandBuffer cb = ex->cb;
+    uint32_t w = T.w, h = T.h, ow = T.ow, oh = T.oh;
     uint64_t now = plat_now_ns();
     double dt = T.last_ns ? (double)(now - T.last_ns) / 1e6 : 0;
     T.last_ns = now;
     int sharp = cfg_int("TOTK_FSR_SHARPNESS");
-    VkFfxDispatch d = {.color = {t->image, t->format, w, h}, .depth = {T.zcopy.img, VK_FORMAT_R32_SFLOAT, w, h},
+    VkFfxDispatch d = {.color = {color, cf, w, h}, .depth = {T.zcopy.img, VK_FORMAT_R32_SFLOAT, w, h},
                        .mv = {T.mv.img, VK_FORMAT_R16G16_SFLOAT, w, h},
-                       .out = {T.out.img, VK_FORMAT_R16G16B16A16_SFLOAT, w, h}, .jx = jx, .jy = jy,
-                       .dt_ms = dt > 0 && dt < 100 ? (float)dt : 16.67f, .cam_near = CAM_NEAR, .cam_far = CAM_FAR,
-                       .fov_y = 41.0f * 3.14159265f / 180.0f, .reset = T.reset,
+                       .out = {T.out.img, VK_FORMAT_R16G16B16A16_SFLOAT, ow, oh},
+                       .jx = T.ux, .jy = T.uy, .dt_ms = dt > 0 && dt < 100 ? (float)dt : 16.67f, .cam_near = CAM_NEAR,
+                       .cam_far = CAM_FAR, .fov_y = 41.0f * 3.14159265f / 180.0f, .reset = T.reset,
                        .sharpness = sharp <= 0 ? 0.0f : sharp >= 100 ? 1.0f : (float)sharp / 100.0f};
-    if (t->level || t->base_layer) return fail("a lighting target that is not level 0 / layer 0");
+    vk_exec_barrier(ex);
+    if (copy) {
+        VkImageBlit b = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                         .srcOffsets = {{0, 0, 0}, {(int32_t)w, (int32_t)h, 1}},
+                         .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                         .dstOffsets = {{0, 0, 0}, {(int32_t)w, (int32_t)h, 1}}};
+        vkCmdBlitImage(cb, color, VK_IMAGE_LAYOUT_GENERAL, T.cin.img, VK_IMAGE_LAYOUT_GENERAL, 1, &b, VK_FILTER_NEAREST);
+        full_barrier(cb);
+        ex->recorded += 2;
+        d.color = (VkFfxImage){T.cin.img, VK_FORMAT_R16G16B16A16_SFLOAT, w, h};
+    }
     rec_drain();   // FSR records into the command buffer itself: the recorder thread must have made every call so far
     if (!vk_ffx_dispatch(T.ctx, cb, &d)) return fail("FSR dispatch");
     full_barrier(cb);
-    // TEMPORAL_DEBUG=1: the motion vectors (x red, y green, render pixels) in place of the picture
-    int dbg = knob("TEMPORAL_DEBUG", 0);
-    VkImageBlit b = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                     .srcOffsets = {{0, 0, 0}, {(int32_t)w, (int32_t)h, 1}},
-                     .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, t->level, t->base_layer, 1},
-                     .dstOffsets = {{0, 0, 0}, {(int32_t)w, (int32_t)h, 1}}};
-    vkCmdBlitImage(cb, dbg ? T.mv.img : T.out.img, VK_IMAGE_LAYOUT_GENERAL, t->image, VK_IMAGE_LAYOUT_GENERAL, 1, &b,
-                   VK_FILTER_NEAREST);
+    // TEMPORAL_DEBUG=1 (native): the motion vectors (x red, y green, render pixels) in place of the picture
+    int dbg = !copy && knob("TEMPORAL_DEBUG", 0);
+    {
+        VkImageBlit b = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                         .srcOffsets = {{0, 0, 0}, {(int32_t)ow, (int32_t)oh, 1}},
+                         .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, layer, 1},
+                         .dstOffsets = {{0, 0, 0}, {(int32_t)ow, (int32_t)oh, 1}}};
+        vkCmdBlitImage(cb, dbg ? T.mv.img : T.out.img, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_GENERAL, 1, &b,
+                       VK_FILTER_NEAREST);
+    }
     full_barrier(cb);
     ex->recorded += 4;
     vk_exec_draw_new_cb();   // FSR bound pipelines and descriptors of its own: the next draw binds everything again
     ex->dirty |= VK_EXEC_DIRTY_ALL;
-    T.reset = 0, T.done = 1, T.ended = 1, T.sw = w, T.sh = h;
-    next_jitter(w, w);
+    T.reset = 0, T.done = 1;
+    next_jitter(w, ow);
     if (++T.runs == 1 || T.runs == 300 || T.runs % LOG_EVERY == 0)
-        rt_log("temporal: %llu frames through FSR at %ux%u (%llu frames without the FSR point, %llu without a camera, "
-               "%llu jitter holds; last jitter %.3f %.3f, camera %.0f %.0f %.0f)",
-               (unsigned long long)T.runs, w, h, (unsigned long long)T.missed, (unsigned long long)T.nocam,
-               (unsigned long long)T.holds, (double)jx, (double)jy, (double)T.cam_pos[0], (double)T.cam_pos[1],
+        rt_log("temporal: %llu frames through FSR at %ux%u -> %ux%u (%llu frames without the FSR point, %llu without a "
+               "camera, %llu jitter holds; last jitter %.3f %.3f, camera %.0f %.0f %.0f)",
+               (unsigned long long)T.runs, w, h, ow, oh, (unsigned long long)T.missed, (unsigned long long)T.nocam,
+               (unsigned long long)T.holds, (double)T.ux, (double)T.uy, (double)T.cam_pos[0], (double)T.cam_pos[1],
                (double)T.cam_pos[2]);
 }
 
@@ -459,15 +489,15 @@ int vk_temporal_draw(VkExec *ex, const GfxShader *fs, int32_t count) {
     if (T.armed && fh >> 48 == BLOOM_FS_PREFIX && !ex->depth.image && ex->pass_ncolor == 1 &&
         ex->color[0].format == FMT_LIGHT && ex->color[0].width * 2 + 2 >= T.color.width &&
         ex->color[0].width * 2 <= T.color.width + 2) {
+        if (T.ended) return 0;
         unsigned o[2], s[2];
         res_sizes(o, s);
-        if (T.color.width >= o[0]) {
-            int open = ex->in_pass;
-            run_native(ex);
-            if (open) vk_exec_pass_begin(ex);
-        } else {
-            T.ended = 1;   // upscaling: FSR runs in place of the game's EASU (vk_temporal_dispatch)
-        }
+        int open = ex->in_pass, native = T.color.width >= o[0];
+        if (T.color.level || T.color.base_layer) fail("a lighting target that is not level 0 / layer 0");
+        // native: FSR in place now; upscaling: FSR runs in place of the game's EASU (vk_temporal_dispatch)
+        else if (scene_end(ex, native ? T.color.width : o[0], native ? T.color.height : o[1], native) && native)
+            fsr(ex, T.color.image, T.color.format, T.color.image, 0, 0, 0);
+        if (open) vk_exec_pass_begin(ex);
         return 0;
     }
     int jit = T.jit_ok && !T.ended && count > 6 && ex->depth.image && ex->depth.format == FMT_DEPTH &&
@@ -478,7 +508,49 @@ int vk_temporal_draw(VkExec *ex, const GfxShader *fs, int32_t count) {
 
 void vk_temporal_viewport(float *x, float *y) { *x += T.jx, *y += T.jy; }
 
-int vk_temporal_dispatch(VkExec *ex, const GfxShader *cs, const int32_t groups[3]) {
-    (void)ex, (void)cs, (void)groups;
-    return 0;
+// The game's FSR 1 EASU at a scene smaller than the output (cs 7f87acdabd353565: (ow/16) x (oh/16) groups, the
+// tonemapped scene sampled, the output-size picture stored) is replaced by FSR on the same input. The input is the
+// game's LDR picture after its tonemap, with the world UI already in it (FSR without HDR flags). RCAS and the HUD
+// follow unchanged.
+int vk_temporal_dispatch(VkExec *ex, const GfxShader *cs, const VkPipeInfo *info, const int32_t g[3]) {
+    if (!vk_temporal_active() || T.done || !T.ended || !T.ctx || !info) return 0;
+    unsigned o[2], s[2];
+    res_sizes(o, s);
+    if (T.sw >= o[0] || T.ow != o[0] || T.oh != o[1] || g[2] != 1 || (uint32_t)g[0] != (o[0] + 15) / 16 ||
+        (uint32_t)g[1] != (o[1] + 15) / 16)
+        return 0;
+    const VkTexImage *in = NULL, *out = NULL;
+    int n_in = 0, n_out = 0;
+    for (uint32_t i = 0; i < info->n_bindings; i++) {
+        const VkPipeBinding *bd = &info->bindings[i];
+        if (!bd->res || (bd->kind != GFX_RES_TEX && bd->kind != GFX_RES_IMG)) continue;
+        int img = bd->kind == GFX_RES_IMG, slot = bd->res->slot;
+        uint64_t hd = img ? (slot >= 0 && slot < 32 ? ex->img[5][slot] : 0) : (slot >= 0 && slot < 128 ? ex->tex[5][slot] : 0);
+        view_t v;
+        int hv = 0;
+        const VkTexImage *t = hd ? vk_texture_by_id(&ex->tex_pool, NVN_HANDLE_TEX(hd), &v, &hv) : NULL;
+        if (!t || (hv && ((v.set_levels && v.base_level) || (v.set_layers && v.min_layer)))) continue;
+        if (img) out = t, n_out++;
+        else in = t, n_in++;
+    }
+    static int told;
+    uint64_t hash = spirv_hash(cs);
+    int fmt_ok = in && out && (in->format == VK_FORMAT_R8G8B8A8_SRGB || in->format == VK_FORMAT_R8G8B8A8_UNORM) &&
+                 (out->format == VK_FORMAT_R8G8B8A8_SRGB || out->format == VK_FORMAT_R8G8B8A8_UNORM);
+    if (n_in != 1 || n_out != 1 || in->width != T.sw || in->height != T.sh || out->width < o[0] || out->height < o[1] ||
+        !fmt_ok) {
+        if (told++ < 4)
+            rt_log("temporal: a dispatch of cs %016llx at %dx%d groups is not the expected EASU (%d inputs %ux%u fmt %d, "
+                   "%d outputs %ux%u fmt %d): the game's own runs", (unsigned long long)hash, g[0], g[1], n_in,
+                   in ? in->width : 0, in ? in->height : 0, in ? (int)in->format : 0, n_out, out ? out->width : 0,
+                   out ? out->height : 0, out ? (int)out->format : 0);
+        return 0;
+    }
+    if (!told) {
+        told = 1;
+        rt_log("temporal: FSR replaces the game's EASU (cs %016llx): %ux%u fmt %d -> %ux%u of %ux%u fmt %d", (unsigned long long)hash,
+               T.sw, T.sh, (int)in->format, o[0], o[1], out->width, out->height, (int)out->format);
+    }
+    fsr(ex, in->image, in->format, out->image, 0, 0, 1);
+    return T.done;
 }

@@ -16,7 +16,7 @@ int vk_temporal_draw(VkExec *ex, const GfxShader *fs, int32_t count);
 void vk_temporal_viewport(float *x, float *y);   // adds this frame's jitter to a jittered draw's viewport origin
 // op_dispatch, before the game's compute dispatch is bound: 1 when vk_temporal.c recorded a replacement for it (the
 // game's FSR 1 EASU at a scene smaller than the output) and the dispatch is to be skipped
-int vk_temporal_dispatch(VkExec *ex, const GfxShader *cs, const int32_t groups[3]);
+int vk_temporal_dispatch(VkExec *ex, const GfxShader *cs, const VkPipeInfo *info, const int32_t groups[3]);
 void vk_temporal_present(void);   // vk_exec_frame_log: a frame ended
 // vk_exec_draw.c: bytes [off, off + n) of the uniform block bound at slot (c3 = 0) of stage as the replay sees it now;
 // 0 when unbound or too short

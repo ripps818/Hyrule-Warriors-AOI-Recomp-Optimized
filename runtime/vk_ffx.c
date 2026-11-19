@@ -284,7 +284,8 @@ void *vk_ffx_create(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, int hdr, i
 #endif
     // Linear HDR scene light with the upscaler's own exposure (native AA on the lighting target), or the game's
     // tonemapped LDR picture (upscaling in place of the game's EASU)
-    uint32_t flags = hdr ? FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE | FFX_UPSCALE_ENABLE_AUTO_EXPOSURE : 0;
+    // (fsr4-vk wants an exposure texture without auto exposure, so both take FSR's own)
+    uint32_t flags = FFX_UPSCALE_ENABLE_AUTO_EXPOSURE | (hdr ? FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE : 0);
     if (depth_inverted) flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
     if (depth_infinite) flags |= FFX_UPSCALE_ENABLE_DEPTH_INFINITE;
     if (rt_knob("FSR_DEBUG", "0")) flags |= FFX_UPSCALE_ENABLE_DEBUG_CHECKING;   // HWAOI_FSR_DEBUG=1: API checks
