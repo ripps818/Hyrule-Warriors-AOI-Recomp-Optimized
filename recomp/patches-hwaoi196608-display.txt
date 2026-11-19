@@ -1,6 +1,6 @@
 # HWAoI NCM 196608, exact main SHA256 checked by tools/hwaoi.py.
 # Configurable native 16:9 output and scene. Patch page +0x80: scene {u32 w,h},
-# +0x88: output {u32 w,h}, +0xa8: the 2D canvas {u32 1920,1080} (set hwaoi_ui_canvas).
+# +0x88: output {u32 w,h}, +0xa8: the 2D canvas {u32 1920,1080}, +0xb0: f32 output_w/1920 (set hwaoi_ui_canvas).
 # Initialized before guest execution by resolution.c.
 # Original NUP/NSO remain unchanged. Both scale policies must stay at 1.0.
 set hwaoi_display TOTK_NATIVE_1080 1
@@ -67,8 +67,16 @@ site hwaoi_display main 01af1b00 f2c00029 d503201f
 # {u32 1920, 1080}: the layer size becomes the canvas, so the cameras frame the
 # canvas at every output and text scales with it. add610's own perspective path
 # (callers outside the setup, e.g. b2c1f4 on a size change) gets the same size.
-# Not covered: map icons, minimap markers (canvas units drawn in output pixels).
+# 2D primitives (map icons, minimap markers) are handled by the af42dc sites below.
 set hwaoi_ui_canvas TOTK_UI_CANVAS 1
 site hwaoi_ui_canvas main 00576ff8 f9400119 @page:x25 f9405739
 site hwaoi_ui_canvas main 00add844 2d400680 @page:x9 2d550520
 site hwaoi_ui_canvas main 00add874 2d400a81 @page:x9 2d550921
+# The game's own 2D primitive recorder (renderer vtable at main+275fb28; quads via main+af38c0 from the widget
+# draw call main+15f2ca4: map icons, minimap markers) takes positions in canvas units and, for batches with a
+# target (+0x428), copies the four corners unchanged at main+af42dc; they are drawn with the window's pixel
+# projection. Page +0xb0 holds f32 output_w/1920: the corners are scaled into output pixels there.
+site hwaoi_ui_canvas main 00af42e4 a9402448 ad400440 @page:x9 bd40b122 4f829000 4f829021 ad000420
+site hwaoi_ui_canvas main 00af42e8 a9412c4a d503201f
+site hwaoi_ui_canvas main 00af42ec a9012c2a d503201f
+site hwaoi_ui_canvas main 00af42f0 a9002428 d503201f
